@@ -7,6 +7,9 @@
 (import  [hycl.core [*]])
 (require [hycl.core [*]])
 
+(import  [hycl.util [*]])
+(require [hycl.util [*]])
+
 
 (defn assert-all-equal [&rest tests]
   (reduce (fn [x y] (assert-equal x y) y)
@@ -218,3 +221,31 @@
     [1 2 3 4]
     )
   )
+
+(defn test-defun []
+  
+  (defun testfn (x y)
+    (if x y (+ 3 y)))
+  
+  (eq_
+    (testfn 1 2)
+    2)
+  (eq_
+    (testfn nil/cl 2)
+    5)
+
+  (defun testfn2 (x y)
+    (setq z 20)
+    (if x (+ z y)))
+
+  (eq_
+    (testfn2 1 2)
+    22)
+
+  (eq_
+    (testfn2 [] 2)
+    nil/cl)
+  
+  
+  )
+    
