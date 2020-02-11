@@ -1,9 +1,7 @@
 
-(import [collections.abc [Iterable]])
 
-;; (import
-;;   [hy [HyKeyword]]
-;;   [hy.contrib.hy-repr [hy-repr]])
+(import [collections.abc [Iterable]])
+(import  functools)
 
 (require [hy.contrib.loop [loop]])
 (require [hy.contrib.walk [let]])
@@ -11,26 +9,23 @@
 ;; (import [cons [cons :as  cons/py car :as car/py cdr :as cdr/py]]) ;;;can not apply on lisp
 ;; (import [cons.core [ConsPair MaybeCons ConsNull]])
 
+(import [hycl.nil [*]])
 
-;(eval-and-compile
-(import  functools)
+;; (defclass Nil/cl [] 
+;;   (defn --init-- [self]
+;;     (setv
+;;       self.car self
+;;       self.cdr self)))
+;; (setv nil/cl (Nil/cl))
+;; (defn null/cl? [x]
+;;   (cond
+;;     [(instance? Nil/cl x) True]
+;;     [(= [] x) True]
+;;     [(= (,) x) True]
+;;     [(= '() x) True]
+;;     [True False]))
 
-
-(defclass Nil/cl [] 
-  (defn --init-- [self]
-    (setv
-      self.car self
-      self.cdr self)))
-(setv nil/cl (Nil/cl))
-(defn null/cl? [x]
-  (cond
-    [(instance? Nil/cl x) True]
-    [(= [] x) True]
-    [(= (,) x) True]
-    [(= '() x) True]
-    [True False]))
-
-;;; take ConsPair from ohttps://github.com/algernon/adderall/blob/master/adderall/internal.hy
+;; take ConsPair from ohttps://github.com/algernon/adderall/blob/master/adderall/internal.hy
 (defclass ConsPair [Iterable]
   "Construct a cons list.
 
@@ -56,7 +51,6 @@ be nested in `cons`es, e.g.
                                ;;None
                                nil/cl
                                )))
-            ;;(print "c d o" car-part cdr-part cls parts)
             (cond
               [(instance? Nil/cl cdr-part)
                `(~car-part)]
@@ -65,15 +59,15 @@ be nested in `cons`es, e.g.
               [(tuple? cdr-part)
                (tuple (+ [car-part] (list cdr-part)))]
               [(list? cdr-part)
-                    ;; Try to preserve the exact type of list
-                    ;; (e.g. in case it's actually a HyList).
+               ;; Try to preserve the exact type of list
+               ;; (e.g. in case it's actually a HyList).
                (+ ((type cdr-part) [car-part]) cdr-part)]
               [True
-                    (do
-                      (setv instance (.--new-- (super ConsPair cls) cls))
-                      (setv instance.car car-part)
-                      (setv instance.cdr cdr-part)
-                      instance)]))))
+               (do
+                 (setv instance (.--new-- (super ConsPair cls) cls))
+                 (setv instance.car car-part)
+                 (setv instance.cdr cdr-part)
+                 instance)]))))
   (defn --hash-- [self]
     (hash [self.car, self.cdr]))
   (defn --eq-- [self other]
@@ -109,19 +103,16 @@ be nested in `cons`es, e.g.
   (or (getattr z "car" None)
       (-none-to-empty-or-list (first z))))
 
-;; (defun cdr (ls)
-;;   (cut ls 1))
-
 (defn cdr [z]
   (or (getattr z "cdr" None)
       (cond
         [(instance? range z) (cut z 1)]
         [(iterator? z) (rest z)]
         [True ;;(or (tuple? z) (list? z))
-             ((type z) (list (rest z)))]
+         ((type z) (list (rest z)))]
         ;;[True (rest z)]
-      ;;  ;; Try to preserve the exact type of list
-      ;;  ;; (e.g. in case it's actually a HyList).
+        ;;  ;; Try to preserve the exact type of list
+        ;;  ;; (e.g. in case it's actually a HyList).
         ;;((type z) (list (rest z)))
         )))
 
@@ -140,16 +131,18 @@ be nested in `cons`es, e.g.
   ;;     False))
   )
 
-;; (defn cons? [x] (isinstance x ConsPair))
-;; (defn consp [x] (cons? x))
-(defn consp [el]  (cons? el))
-  
 
+(defn consp [el]  (cons? el))
 (defn atom/cl? [x] (not (cons? x)))
 
+(defmacro! if/pcl [o!c x &optional y ]
+  `(if (null/cl? ~o!c) ~y (if ~o!c ~x ~y)))
+(defn if/cl [test x &optional [y nil/cl]]
+  (if (null/cl? test) y (if test x y)))
+(defmacro nil/cl-macro [] 
+   `(if/cl [] None))
 
-;;(eval-and-compile
-  ;; renamed functions
+;; renamed functions
 ;;   (defmacro! setf (&rest args)
 ;;     ;; Beware of humongous stdout(in repl)!!
 ;;     `(do
@@ -172,27 +165,15 @@ be nested in `cons`es, e.g.
 (defn eq [x y]      (is x y))
 (defn equals [x y]  (= x y))
 
-  ;; ;; numerical functions
-  ;; (defun mod (n m)
-  ;;   (% n m))
-  
-  ;; (defun zerop (n)
-  ;;   (= n 0))
-  
-  ;; (defun plusp (n)
-  ;;   (> n 0))
-  
-  ;; (defun minusp (n)
-  ;;   (< n 0))
+;; ;; numerical functions
+(defn mod [n m] (% n m))
+(defn zerop [n] (= n 0))
+(defn plusp [n] (> n 0))
+(defn minusp [n] (< n 0))
+(defn oddp [n] (zerop (mod n 2)))
+(defn evenp [n] (not (oddp n)))
+(defn divisible [n m] (zerop (mod n m)))
 
-  ;; (defun oddp (n)
-  ;;   (zerop (mod n 2)))
-
-  ;; (defun evenp (n)
-  ;;   (not (oddp n)))
-
-  ;; (defun divisible (n m)
-  ;;   (zerop (mod n m)))
 (defmacro incf [n  &optional [delta 1]]
   `(setv ~n (+ ~n ~delta)))
 
@@ -204,23 +185,14 @@ be nested in `cons`es, e.g.
 
 (defmacro 1- [n]
   `(- ~n 1))
-  
-  ;; ;; list functions
-  ;; ;; ------------------- DO NOT SET nil!!-----------------------------
-  ;; (setf nil (HyExpression ()))
-  ;; ;; ------------------- DO NOT SET nil!!-----------------------------
 
-;; (defn null     [ls] (isinstance ls ConsNull))
-;; (defn null/cl? [ls] (null ls))
+;; ;; list functions
 
-  ;; (defun lst (&rest args)
-  ;;   (HyExpression args))
+;; (defun lst (&rest args)
+;;   (HyExpression args))
 
-  ;; (defun length (list)
-  ;;   (len list))
-
-  ;; (defun emptyp (ls)
-  ;;   (zerop (length ls)))
+(defn length [l] (len l))
+(defn emptyp [l] (empty? l))
 
 (defn caar [ls]  (-> ls car car))
 (defn cddr [ls]  (-> ls cdr cdr))
@@ -228,18 +200,26 @@ be nested in `cons`es, e.g.
 (defn cdar [ls]  (-> ls car cdr))
 
 (defn apply/cl [f ls]  (f #*ls))
-  
-  ;; (defmacro push (el ls)
-  ;;   `(setf ~ls (cons ~el ~ls)))
 
-  ;; (defun nreverse (ls)
-  ;;   (.reverse ls)
-  ;;   ls)
+;; (defmacro push (el ls)
+;;   `(setf ~ls (cons ~el ~ls)))
+
+(defn nreverse [ls]
+  (cond
+    [(list? x)
+     (do (.reverse ls)
+         ls)]
+    [True (do
+            (setv tmp (list ls))
+            (.reverse tmp)
+            (type ls )tmp)
+     ]))
+
 (defn nconc [x y]
   (cond
     [(list? x) (do (.extend x y) x)]
     [True (cons x y)] ;;not correct dealing cdr pointer 
-     ))
+    ))
 
 (defn append/cl [x y]  (if (empty? x) y  (nconc (car x) (append/cl (cdr x) y))))
 
@@ -249,18 +229,17 @@ be nested in `cons`es, e.g.
       (append/cl
         (func (car ls))
         (mapcan func (cdr ls)))))
-;;   ;; macros
+
 (defmacro progn [&rest body]
   `(do ~@body))
 
-;; (eval-and-compile
+
 (defn mapcar [func &rest seqs]  ((type (car seqs))  (apply/cl (functools.partial map func) seqs))   )
 
 ;;   (defun group (src n)
 ;;     (HyExpression (apply zip (* [(iter src)] n)))))
 
-;; (eval-and-compile
-  
+
 (defmacro lambda [lambda-list &rest body]
   `(fn ~(list lambda-list) ~@body))
 
@@ -292,13 +271,13 @@ be nested in `cons`es, e.g.
 ;;     `(if (not ~condition)
 ;;          (progn
 ;;            ~@body)))  
-  
+
 ;;   (defun pushr (ls el)
 ;;     (.append ls el))
-  
+
 ;;   (defun pushl (ls el)
 ;;     (.insert ls 0 el))
-  
+
 ;;   )
 
 ;; (eval-and-compile
@@ -311,19 +290,16 @@ be nested in `cons`es, e.g.
 ;;          acc))
 
 
-(defmacro! if/cl [o!c x &optional y]
-  `(if (null/cl? ~o!c) ~y (if ~o!c ~x ~y)))
-
- (defmacro cond/cl [&rest branches]
+(defmacro cond/cl [&rest branches]
   (loop
     ((ls branches)
-       (cont (lambda (x) x)))    
-      (if ls
-          (recur (cdr ls) (lambda (x) (cont `(if ~(caar ls)
-                                                 (progn ~@(cdar ls)) 
-                                                 ~x))))
-          (cont None))))
- 
+      (cont (lambda (x) x)))
+    (if ls
+        (recur (cdr ls) (lambda (x) (cont `(if/cl ~(caar ls)
+                                               (progn ~@(cdar ls)) 
+                                               ~x))))
+        (cont None ))))
+
 
 ;;   (defmacro! case (exp &rest branches)
 ;;     `(let ((~g!val ~exp))
@@ -342,7 +318,7 @@ be nested in `cons`es, e.g.
         nil
         (let [res (cond
                     [(atom/cl? pat) pat]
-                    ;[(eq (car pat) '&rest) (cadr pat)]
+                                ;[(eq (car pat) '&rest) (cadr pat)]
                     [True nil])]
           (if/cl res
                  `((~res (subseq ~seq 0 ~n)))
@@ -355,31 +331,31 @@ be nested in `cons`es, e.g.
                          rec)
                        (let [var (gensym)]
                          (cons (cons `(~var (get ~seq ~n))
-                                  (destruc p var 0))
+                                     (destruc p var 0))
                                rec)))))))))
 
 (defn dbind-ex [binds body]
   (if (null/cl? binds)
       `(do ~@body)
       `(let/cl
-          ~(mapcar (fn [b]
-                   (if (cons? (car b))
-                       (car b)
-                       b))
-                 binds)
+         ~(mapcar (fn [b]
+                    (if (cons? (car b))
+                        (car b)
+                        b))
+                  binds)
          ~(dbind-ex (mapcan (fn [b]
-                             (if (cons? (car b))
-                                 `(~(cdr b))
-                                 '()))
-                           binds)
-                   body))))
+                              (if (cons? (car b))
+                                  `(~(cdr b))
+                                  '()))
+                            binds)
+                    body))))
 
 
 (defmacro! dbind [pat seq &rest body]
-   (if (instance? hy.models.HyExpression seq)
-       (+ '(let) `([~g!seq (quote ~seq)])
-          `( ~(dbind-ex (destruc pat g!seq 0) body))  )
-       (+ '(let) `([~g!seq ~seq])
+  (if (instance? hy.models.HyExpression seq)
+      (+ '(let) `([~g!seq (quote ~seq)])
+         `( ~(dbind-ex (destruc pat g!seq 0) body))  )
+      (+ '(let) `([~g!seq ~seq])
          `( ~(dbind-ex (destruc pat g!seq 0) body))
          )))
 
@@ -389,301 +365,56 @@ be nested in `cons`es, e.g.
 ;;   ;; multiple-value-bind
 ;;   (defmacro mvb (var-list expr &rest body)
 ;;     `(dbind ~var-list ~expr ~@body))
+
 (defmacro multiple-value-bind [var-list expr &rest body]
-   (setv n1 (len var-list) n2 (len expr))
-   `(do (setv
+  (setv n1 (len var-list)
+        n2 (len expr) )
+  `(do (setv
          ~@(mapcan
              (fn [k]
                (if (< k n2)
-               [(get var-list k) (get expr k)]
-               [(get var-list k) None] ))
+                   [(get var-list k) (get expr k)]
+                   [(get var-list k) None ] ))
              (list (range n1))))
        ~@body
        ))
 
-
-;;   ;; errors
-;;   (defmacro! ignore-errors (&rest body)
-;;     `(try
+;; (defmacro multiple-value-bind/cl [var-list expr &rest body]
+;;   (setv n1 (len var-list)
+;;         n2 (len expr) )
+;;   `(do (setv
+;;          ~@(mapcan
+;;              (fn [k]
+;;                (if (< k n2)
+;;                    [(get var-list k) (get expr k)]
+;;                    [(get var-list k) (nil/cl-macro) ] ))
+;;              (list (range n1))))
 ;;        ~@body
-;;        (except [~g!err Exception]
-;;          nil)))
-
-;;   (defmacro! unwind-protect (protected &rest body)
-;;     `(try
-;;        ~protected
-;;        (except [~g!err Exception]
-;;          ~@body
-;;          (raise ~g!err))))
-
-;;   ;; sharp macros
-;;   (defmacro! pr (o!arg)
-;;     `(do
-;;        (print ~o!arg)
-;;        ~o!arg))
-
-;;   (deftag p [code]
-;;     "debug print"
-;;     `(pr ~code))
-
-;;   (deftag r [regex]
-;;     "regexp"
-;;     `(do
-;;        (import re)
-;;        (re.compile ~regex)))
-
-;;   (deftag g [path]
-;;     "glob"
-;;     `(do
-;;        (import glob)
-;;        (glob.glob ~path)))    
-  
-  
-;;   (import os fnmatch)
-  
-;;   (defun path-genr (fname dir)
-;;     (for [tp (os.walk dir)]       
-;;       (for [f (get tp 2)]
-;;         (if (fnmatch.fnmatch f fname)
-;;             (yield (os.path.join (get tp 0) f))))))
-
-;;   (deftag f [dir-fname]
-;;     "find file name"
-;;     `(path-genr ~(get dir-fname 1) ~(get dir-fname 0)))
-  
-;;   (deftag sh [command]
-;;     `(do
-;;        (import subprocess)
-;;        (setf proc (subprocess.Popen ~command
-;;                                     :shell True
-;;                                     :stdin subprocess.PIPE
-;;                                     :stdout subprocess.PIPE
-;;                                     :stderr subprocess.PIPE)
-;;              (, stdout-data stderr-data) (proc.communicate))
-;;        (print (.decode  stderr-data "ascii"))
-;;        (.decode stdout-data "ascii")))
-  
-;;   (defun ts ()
-;;     "timestamp"
-;;     (do
-;;       (import datetime)       
-;;       (datetime.datetime.now)))
-;;   )
-
-;; ;; pipe utils
-;; (eval-and-compile
-;;   (defun nreplace-el (from to tree &optional guard)
-;;     (loop
-;;       ((tree tree)
-;;        (guard guard))
-;;       (for [i (range (len tree))]
-;;         (setv el (get tree i))        
-;;         (cond/cl ((consp el)  (if (= (get el 0) guard) 
-;;                                   (continue)
-;;                                   (recur el guard)))
-;;                  ((and (is (type el) (type from)) (= el from)) (setf (get tree i) to)))))
-;;     tree)
-
-;;   (defmacro! => (&rest args)
-;;     (let ((replaced (nreplace-el '_ g!it (cdr args) '=>))
-;;           (cur `(let ((~g!it ~(get args 0)))
-;;                      ~g!it)))
-;;          (for [sexp (cdr args)]        
-;;            (setf cur (if (in g!it (flatten [sexp]))                    
-;;                          `(let ((~g!it ~cur))
-;;                                ~sexp)
-;;                          (if (consp sexp)
-;;                              (HyExpression (+ [(get sexp 0)] [cur] (cdr sexp)))
-;;                              (+ (HyExpression [sexp]) [cur])))))
-;;          cur))
-  
-;;   (defmacro first_ (ls)
-;;     `(get ~ls 0))
-  
-;;   (defmacro last_ (ls)
-;;     `(get ~ls -1))
-  
-;;   (defmacro spl/ (str)
-;;     `(.split str "/"))
-  
-;;   (defmacro spl/t (str)
-;;     `(.split str "/t"))
-  
-;;   (defmacro splc (str)
-;;     `(.split str ","))
-  
-;;   (defmacro getext (str)
-;;     `(=> ~str spl/ last_))
-  
-;;   (defmacro getid (str)
-;;     `(=> ~str spl/ first_))
-  
-  
-;;   )
+;;        ))
 
 
-;; (eval-and-compile   
-;;   (defun slurp (path &optional (encoding "latin-1"))
-;;     (.read (open path 'r :encoding encoding)))
+ ;;   ;; errors
+ ;;   (defmacro! ignore-errors (&rest body)
+ ;;     `(try
+ ;;        ~@body
+ ;;        (except [~g!err Exception]
+ ;;          nil)))
 
-;;   (defun slurpls (path &optional (delim None) (encoding "latin-1"))
-;;     (with (fr (open path 'r :encoding encoding))
-;;       (if delim
-;;           (lfor
-;;             line fr
-;;             (if delim
-;;                (.split (.strip line) delim)
-;;                (.strip line)))
-;;           (.readlines fr))))
+ ;;   (defmacro! unwind-protect (protected &rest body)
+ ;;     `(try
+ ;;        ~protected
+ ;;        (except [~g!err Exception]
+ ;;          ~@body
+ ;;          (raise ~g!err))))
 
-;;   (defun barf (cont path)
-;;     (with (fw (open path 'w))
-;;       (.write fw cont)))
-  
-;;   (defun barfls (ls path &optional (delim None))    
-;;     (with (fw (open path 'w))
-;;       (if delim
-;;           (for [lst ls]
-;;             (if delim
-;;                 (=> lst 
-;;                     (map str _)
-;;                     (.join delim _)
-;;                     (print :file fw))
-;;                 (print lst :file fw))))))
-  
-;;   )
-
-;; ;; debugging utils
-;; (eval-and-compile
-;;   (deftag bp []
-;;     ;; breakpoint
-;;     `(do (import ptpdb) (ptpdb.set_trace)))
-  
-;;   (import [io [StringIO]]
-;;           traceback
-;;           sys
-;;           code
-;;           [IPython.terminal.embed [InteractiveShellEmbed :as ise]]
-;;           [IPython.lib.pretty [pretty]])  
-  
-;;   (defclass CallStackViewer [object]
-;;     (defun __init__ (self tb)
-;;       (setf self.tb tb
-;;             self.frames []
-;;             self.injected-symbols (set ["dv" "get_locs"]))
-;;       (while tb.tb-next
-;;         (setf tb tb.tb-next)
-;;         (.append self.frames tb.tb-frame))
-;;       (setf self.last-frame (get self.frames -1)))
-    
-;;     (defun get-locs (self &optional (n 5))
-;;       (setf locs [])
-;;       (for [frame (get self.frames (slice (- n) None))]
-;;         (setf code frame.f-code
-;;               args (dict-comp
-;;                      arg (get frame.f-locals arg)
-;;                      (arg (get code.co-varnames (slice None code.co-argcount))))
-;;               loc-vars (dict-comp
-;;                          k v
-;;                          ((, k v) (.items frame.f-locals))
-;;                          (if (not-in k self.injected-symbols))))
-;;         (.append locs (, code.co-name args loc-vars)))
-;;       locs))
-  
-;;   (defun debug (f)
-;;     ;; postmortem (in failed call stack)
-;;     ;; 1. Don't use in hy-mode repl
-;;     ;; 2. your script will fail for circular importing in IPython/core/completer.py. so run a script with $ hy -c "(import script)(script.main)"
-;;     (with-decorator (functools.wraps f)
-;;       (defun wrapper (&rest args &kwargs kwargs)
-;;         (try
-;;           (f #*args #**kwargs)
-;;           (except [e Exception]
-;;             (print "Debug mode activated")
-;;             (setf (, type value tb) (sys.exc-info)
-;;                   buf (StringIO))
-;;             (traceback.print-exc :file buf)
-;;             (setf stb (pr (.getvalue buf))
-;;                   dv (CallStackViewer tb)
-;;                   frame dv.last-frame
-;;                   ns frame.f-locals
-;;                   (get ns 'dv) dv
-;;                   (get ns 'get-locs) (lambda (&optional [n 5]) (dv.get-locs :n n)))
-;;             (.mainloop (ise) :local-ns ns)))))
-;;     wrapper)
-  
-;;   (deftag d [function-defininition-form]
-;;     ;; Try this! Enjoy!
-;;     ;; #d
-;;     ;; (defun test ()
-;;     ;;   (setf a 10)
-;;     ;;   (/ 1 0))
-;;     `(with-decorator debug
-;;        ~function-defininition-form))
-  
-;;   (defmacro me (sexp)
-;;     ;; use it with this emacs-lisp-command)
-;;     ;; (defun pp-macroexpand ()
-;;     ;;   (interactive "*")  
-;;     ;;   (when (get-buffer "*Hy Macroexpand*")
-;;     ;;     (kill-buffer "*Hy Macroexpand*"))
-;;     ;;   (let ((beg nil)
-;;     ;;          (end nil))
-;;     ;;     (beginning-of-defun)
-;;     ;;     (setf beg (point))
-;;     ;;     (end-of-defun)
-;;     ;;     (setf end (point))
-;;     ;;     (let ((sexp (car (read-from-string
-;;     ;;                        (buffer-substring beg end))))
-;;     ;;            (buf (get-buffer-create "*Hy Macroexpand*")))
-;;     ;;       (pp sexp buf)
-;;     ;;       (display-buffer buf))))
-;;     `(=> ~sexp
-;;          macroexpand-1
-;;          hy-repr       
-;;          (.replace ";" "")
-;;          (.replace "(." "(!dot")
-;;          (get _ (slice 1 (len _)))       
-;;          print))
-;;   )
-
-;; ;; nputils
-;; (eval-and-compile
-;;   (defun parse-indexing (sym)
-;;     (if (not (in ":" (str sym))) 
-;;         sym
-;;         (progn
-;;           (setf sym (str sym) 
-;;                 splited (.split sym ":"))
-;;           (list (map (lambda (el)
-;;                        (if (or (not el) (= el "\ufdd0"))
-;;                            None
-;;                            (progn
-;;                              (setf iel (ignore-errors (int el)))
-;;                              (if iel
-;;                                  iel
-;;                                  (HySymbol el)))))
-;;                      splited)))))
-  
-;;   (defun parse-str-indexing (str-i)
-;;     (let ((splited (.split str-i ":")))
-;;          (lfor
-;;            i splited
-;;            (get (hy.lex.tokenize i) 0))))
-  
-;;   (defmacro nget (ar &rest indices)
-;;     `(get ~ar ~(tuple (lfor
-;;                         i indices
-;;                         (cond/cl
-;;                           ((or (symbol? i) (keyword? i)) `(slice ~@(parse-indexing i)))
-;;                           ((string? i) (parse-str-indexing i))
-;;                           (True i))))))
-  
-;;   )
+ ;;   ;; sharp macros
+ ;;   (defmacro! pr (o!arg)
+ ;;     `(do
+ ;;        (print ~o!arg)
+ ;;        ~o!arg))
 
 
-
-;;(defn assoc/cl [e dic] (if (in e dic) (get dic e) None))
-(defn assoc/cl [e dic] (if (in e dic) (get dic e) nil/cl))
-;; (assoc/cl 'x {'x 10 'y 20})
+(defn assoc/pcl [e dic] (if (in e dic) (get dic e) None))
+(defn assoc/cl  [e dic] (if (in e dic) (get dic e) nil/cl))
+  ;; (assoc/cl 'x {'x 10 'y 20})
 
