@@ -43,6 +43,14 @@ Example
 (testfn2 [] 2)
 ==>  []
 
+
+(import  [hyclb.cl4hy [*]])
+
+(setv clisp (Clisp :quicklisp True))
+(clisp.eval_qexpr  '(ql:quickload "alexandria"))
+(clisp.eval_str  "(alexandria:destructuring-case '(:x 0 1 2)   ((:x x y z) (list x y z))  ((t &rest rest) :else))")
+==> [0 1 2]
+
 ```
 
 

@@ -9,6 +9,7 @@
 (import  [hyclb.core [*]])
 (require [hyclb.core [*]])
 
+(import [hy.contrib.hy-repr [hy-repr]])
 
 ;; (import [cons [cons :as  cons/py car :as car/py cdr :as cdr/py]]) ;;;can not apply on lisp
 ;; (import [cons.core [ConsPair MaybeCons ConsNull]])
@@ -92,7 +93,10 @@ be nested in `cons`es, e.g.
         (raise StopIteration))
     )
   (defn --repr-- [self]
-    (.format "({} . {})" self.car self.cdr)))
+    ;;(.format "({} . {})" (hy-repr self.car) (hy-repr self.cdr))
+    (.format "(cons {} {})" (hy-repr self.car) (hy-repr self.cdr))
+    )
+  )
 
 (defn -none-to-empty-or-list [x]
   (cond

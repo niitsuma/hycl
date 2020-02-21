@@ -1,2 +1,3 @@
 -e git://github.com/hylang/hy.git@master#egg=hy
+-e git://github.com/marcoheisig/cl4py.git@master#egg=cl4py
 
