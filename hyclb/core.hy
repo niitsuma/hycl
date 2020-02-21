@@ -459,3 +459,7 @@ be nested in `cons`es, e.g.
 (defn assoc/cl  [e dic] (if (in e dic) (get dic e) [])) ;;nil/cl))
 ;; (assoc/cl 'x {'x 10 'y 20})
 
+
+
+
+

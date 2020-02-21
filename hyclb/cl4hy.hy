@@ -1,20 +1,25 @@
-(import re)
-(import numpy)
-(import [fractions [Fraction]])
 
-(import hy)
-(import [hy.contrib.hy-repr [hy-repr]])
+  (import re)
+  (import numpy)
+  (import [fractions [Fraction]])
+
+  (import hy)
+  (import [hy.contrib.hy-repr [hy-repr]])
 
 ;;(import  [hyclb.core [cons cdr]])
 
-(import  hyclb.core)
-(require hyclb.core)
+  (import  hyclb.core)
+  (require hyclb.core)
 
-(import cl4py)
-(import [cl4py.reader [*]]
-        [cl4py.data [*]]
+  (import cl4py)
+  (import [cl4py.reader [*]]
+          [cl4py.data [*]]
         [cl4py.circularity  [*]]
-)
+        )
+
+;;(setv hyclb.cl4hy-loaded True)
+;;(eval-and-compile
+(import cl4py)
 
 (defclass ReadtableHy [cl4py.reader.Readtable]
   (defn __init__ [self lisp]  (.__init__ (super) lisp) )
@@ -124,7 +129,11 @@
                         ;["CL" "COMMON-LISP" ]                        
                         )
                     (return (hy.models.HySymbol name))
-                    (return (hy.models.HySymbol (+ package "::" name)))))))
+                    (return (hy.models.HySymbol
+                              (.replace 
+                                (+ package "." name)
+                                ":" ".")
+                              ))))))
                 ;;     (do 
                 ;;       (if (= (.upper name) "T"  ) (return True))
                 ;;       (if (= (.upper name) "NIL") (return '()))))
@@ -206,7 +215,7 @@
   (defn eval_str [self expr ]
     ;;(setv sexp (hy-repr expr))
     (setv sexp expr)
-    (print sexp)
+    ;;(print sexp)
     ;;(print (hy-repr sexp))
     ;(if self.debug (print sexp))
     (self.stdin.write (+ sexp "\n"))
@@ -216,7 +225,9 @@
         err (self.readtable.read self.stdout)
         msg (self.readtable.read self.stdout)
         )
-    (print pkg val err msg)
+    
+    ;;(print pkg val err msg)
+    
     ;;# Update the current package.
     ;;(setv self.package  pkg)
     ;;# Write the Lisp output to the Python output.
@@ -255,8 +266,92 @@
 
   (defn eval_qexpr [self qexpr]
     (setv exs (cut (hy-repr qexpr) 1 None))
-    (print exs)
+    ;;(print exs)
     (self.eval_str exs)
     )
-
   )
+
+(setv clisp (Clisp :quicklisp True))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;pre load packages 
+
+(clisp.eval_qexpr '(ql:quickload "alexandria"))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(import [hy.contrib.walk [postwalk prewalk]])
+
+
+(setv element-renames
+      {
+       'nil 'nil/cl
+       'null 'null/cl
+       'if 'if/cl
+       'let 'let/cl
+       'setq 'setv
+       'setf 'setv       
+       'atom 'atom/cl
+       't True
+       }
+      )
+
+(defn q-element-cl-replace [p]
+  ;;(print "q-element-cl-replace" p)
+  (if (symbol? p)
+      (if (in p element-renames) 
+          (get element-renames p)
+          (hy.models.HySymbol  (.replace  (str p) ":" ".")))
+      p))
+
+(defn q-exp-cl-rename-deep [p];; &optional [clisp clisp]]
+  (postwalk q-element-cl-replace p))
+  
+(defn q-element-clmc-replace [p]
+  ;;(print "q-element-clmc-replace"  (hy-repr p))
+  (if (not (coll? p))
+      p
+      (do
+        (setv p1 `(macroexpand ~p))
+        ;;(print (hy-repr p1))
+        (setv p2  (clisp.eval_qexpr p1))
+        ;;(print (hy-repr p2) )
+        (lif-not p2 p p2))))
+
+(defn q-exp-clmc-rename-deep [p];; &optional [clisp clisp]]
+  (prewalk q-element-clmc-replace p))
+  
+  ;; ;;(print "start")
+  ;; ;;(print (hy-repr p))
+  ;; (setv p1 `(macroexpand ~p))
+  ;; ;;(print (hy-repr p1))
+  ;; (setv p2  (clisp.eval_qexpr p1))
+  ;; ;;(print (hy-repr p2) )
+  ;; (lif-not p2
+  ;;          (postwalk q-element-cl-replace p)
+  ;;          (postwalk q-element-cl-replace p2)))
+
+(defmacro labels [name arg &rest code]
+  `(defn ~name [~@arg]
+     ~@(lfor p code (q-exp-cl-rename-deep p)))
+     )
+
+(defmacro defun [name arg &rest code]
+  ;;(print "defun" name)
+  `(defn ~name [~@arg]
+     ~@(lfor p code (q-exp-cl-rename-deep
+                      (q-exp-clmc-rename-deep p)
+                      ;;(clisp.eval_qexpr `(macroexpand ~p))
+                      )))
+     )
+
+
+;; (defmacro defun/cl4hy [clisp name arg &rest code]
+;;   (print "defun/cl4hy" name clisp (eval clisp))
+;;   `(defn ~name [~@arg]
+;;      ~@(lfor p code (q-exp-cl-rename-deep
+;;                       p
+;;                       (eval clisp)
+;;                       ;;(clisp.eval_qexpr `(macroexpand ~p))
+;;                       )))
+;;      )

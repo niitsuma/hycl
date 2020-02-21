@@ -51,6 +51,21 @@ Example
 (clisp.eval_str  "(alexandria:destructuring-case '(:x 0 1 2)   ((:x x y z) (list x y z))  ((t &rest rest) :else))")
 ==> [0 1 2]
 
+
+(require  [hyclb.cl4hy [*]])
+
+(import numpy) 
+(defun testfn3 (X Y)
+  (numpy.random.rand
+    (get 
+      (alexandria:destructuring-case
+        '(:a 0 X Y)   ((:a u v w) (list 1 2 u v w ))  ((t &rest rest) :else))
+      0)
+    )
+  )
+(print (testfn3 3 2))
+==> [0.51005462]
+
 ```
 
 
