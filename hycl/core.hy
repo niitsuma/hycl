@@ -6,24 +6,32 @@
 (require [hy.contrib.loop [loop]])
 (require [hy.contrib.walk [let]])
 
+
 ;; (import [cons [cons :as  cons/py car :as car/py cdr :as cdr/py]]) ;;;can not apply on lisp
 ;; (import [cons.core [ConsPair MaybeCons ConsNull]])
 
-(import [hycl.nil [*]])
+(eval-and-compile
+  ;;(import [hy.models [HyObject HySequence]])
+  ;;(import [hycl.nil [*]])
 
-;; (defclass Nil/cl [] 
-;;   (defn --init-- [self]
-;;     (setv
-;;       self.car self
-;;       self.cdr self)))
-;; (setv nil/cl (Nil/cl))
-;; (defn null/cl? [x]
-;;   (cond
-;;     [(instance? Nil/cl x) True]
-;;     [(= [] x) True]
-;;     [(= (,) x) True]
-;;     [(= '() x) True]
-;;     [True False]))
+  (defclass Nil/cl
+    []
+    ;;[HySequence]
+    (defn --init-- [self]
+      (setv
+        self.car self
+        self.cdr self)))
+
+  (setv nil/cl (Nil/cl))
+  
+  (defn null/cl [x]
+    (cond
+      [(instance? Nil/cl x) True]
+      [(= [] x) True]
+      [(= (,) x) True]
+      [(= '() x) True]
+      [True False]))
+  )
 
 ;; take ConsPair from ohttps://github.com/algernon/adderall/blob/master/adderall/internal.hy
 (defclass ConsPair [Iterable]
@@ -100,25 +108,27 @@ be nested in `cons`es, e.g.
 ;;   (first ls))
 
 (defn car [z]
-  (or (getattr z "car" None)
-      (-none-to-empty-or-list (first z))))
+  (if (null/cl z) nil/cl
+      (or (getattr z "car" None)
+          (-none-to-empty-or-list (first z)))))
 
 (defn cdr [z]
-  (or (getattr z "cdr" None)
-      (cond
-        [(instance? range z) (cut z 1)]
-        [(iterator? z) (rest z)]
-        [True ;;(or (tuple? z) (list? z))
-         ((type z) (list (rest z)))]
-        ;;[True (rest z)]
-        ;;  ;; Try to preserve the exact type of list
-        ;;  ;; (e.g. in case it's actually a HyList).
-        ;;((type z) (list (rest z)))
-        )))
+  (if (null/cl z) nil/cl
+      (or (getattr z "cdr" None)
+          (cond
+            [(instance? range z) (cut z 1)]
+            [(iterator? z) (rest z)]
+            [True ;;(or (tuple? z) (list? z))
+             ((type z) (list (rest z)))]
+            ;;[True (rest z)]
+            ;;  ;; Try to preserve the exact type of list
+            ;;  ;; (e.g. in case it's actually a HyList).
+            ;;((type z) (list (rest z)))
+        ))))
 
 
 (defn cons? [a]
-  (cond [(null/cl? a) False]
+  (cond [(null/cl a) False]
         [(instance? ConsPair a) True]
         ;;[(coll? a) (not (empty? a)) True]
         [(or (list? a) (tuple? a) ) (not (empty? a)) True]
@@ -133,14 +143,16 @@ be nested in `cons`es, e.g.
 
 
 (defn consp [el]  (cons? el))
-(defn atom/cl? [x] (not (cons? x)))
+(defn atom/cl [x] (not (cons? x)))
 
-(defmacro! if/pcl [o!c x &optional y ]
-  `(if (null/cl? ~o!c) ~y (if ~o!c ~x ~y)))
-(defn if/cl [test x &optional [y nil/cl]]
-  (if (null/cl? test) y (if test x y)))
-(defmacro nil/cl-macro [] 
-   `(if/cl [] None))
+(defmacro! if/clp [o!c x &optional y ]
+  `(if (null/cl ~o!c) ~y (if ~o!c ~x ~y)))
+
+(defmacro! if/cl [o!c x &optional [y [] ] ]
+  `(if (null/cl ~o!c) ~y (if ~o!c ~x ~y)))
+;; (defn if/cl [test x &optional [y nil/cl]]
+;;   (if (null/cl test) y (if test x y)))
+;;(if/cl [] True )
 
 ;; renamed functions
 ;;   (defmacro! setf (&rest args)
@@ -217,11 +229,15 @@ be nested in `cons`es, e.g.
 
 (defn nconc [x y]
   (cond
+    [(null/cl x) (cons x y)]
     [(list? x) (do (.extend x y) x)]
     [True (cons x y)] ;;not correct dealing cdr pointer 
     ))
 
-(defn append/cl [x y]  (if (empty? x) y  (nconc (car x) (append/cl (cdr x) y))))
+(defn append/cl [x y]
+  (if (empty? x) y
+      (nconc (car x) (append/cl (cdr x) y))
+      ))
 
 (defn mapcan [func ls]
   (if (empty? ls)
@@ -296,9 +312,9 @@ be nested in `cons`es, e.g.
       (cont (lambda (x) x)))
     (if ls
         (recur (cdr ls) (lambda (x) (cont `(if/cl ~(caar ls)
-                                               (progn ~@(cdar ls)) 
-                                               ~x))))
-        (cont None ))))
+                                                  (progn ~@(cdar ls)) 
+                                                  ~x))))
+        (cont [] ))))
 
 
 ;;   (defmacro! case (exp &rest branches)
@@ -314,10 +330,10 @@ be nested in `cons`es, e.g.
 
 (defn destruc [pat seq n]
   (let [nil ((type pat) (list))]
-    (if (null/cl? pat)
+    (if (null/cl pat)
         nil
         (let [res (cond
-                    [(atom/cl? pat) pat]
+                    [(atom/cl pat) pat]
                                 ;[(eq (car pat) '&rest) (cadr pat)]
                     [True nil])]
           (if/cl res
@@ -325,7 +341,7 @@ be nested in `cons`es, e.g.
                  (let
                    [p (car pat)
                     rec (destruc (cdr pat) seq (inc n))]
-                   (if (atom/cl? p)
+                   (if (atom/cl p)
                        (cons
                          `(~p (get ~seq ~n))
                          rec)
@@ -335,7 +351,7 @@ be nested in `cons`es, e.g.
                                rec)))))))))
 
 (defn dbind-ex [binds body]
-  (if (null/cl? binds)
+  (if (null/cl binds)
       `(do ~@body)
       `(let/cl
          ~(mapcar (fn [b]
@@ -379,42 +395,42 @@ be nested in `cons`es, e.g.
        ~@body
        ))
 
-;; (defmacro multiple-value-bind/cl [var-list expr &rest body]
-;;   (setv n1 (len var-list)
-;;         n2 (len expr) )
-;;   `(do (setv
-;;          ~@(mapcan
-;;              (fn [k]
-;;                (if (< k n2)
-;;                    [(get var-list k) (get expr k)]
-;;                    [(get var-list k) (nil/cl-macro) ] ))
-;;              (list (range n1))))
+(defmacro multiple-value-bind/cl [var-list expr &rest body]
+  (setv n1 (len var-list)
+        n2 (len expr) )
+  `(do (setv
+         ~@(mapcan
+             (fn [k]
+               (if (< k n2)
+                   [(get var-list k) (get expr k)]
+                   [(get var-list k) []  ] ))
+             (list (range n1))))
+       ~@body
+       ))
+
+
+;;   ;; errors
+;;   (defmacro! ignore-errors (&rest body)
+;;     `(try
 ;;        ~@body
-;;        ))
+;;        (except [~g!err Exception]
+;;          nil)))
+
+;;   (defmacro! unwind-protect (protected &rest body)
+;;     `(try
+;;        ~protected
+;;        (except [~g!err Exception]
+;;          ~@body
+;;          (raise ~g!err))))
+
+;;   ;; sharp macros
+;;   (defmacro! pr (o!arg)
+;;     `(do
+;;        (print ~o!arg)
+;;        ~o!arg))
 
 
- ;;   ;; errors
- ;;   (defmacro! ignore-errors (&rest body)
- ;;     `(try
- ;;        ~@body
- ;;        (except [~g!err Exception]
- ;;          nil)))
-
- ;;   (defmacro! unwind-protect (protected &rest body)
- ;;     `(try
- ;;        ~protected
- ;;        (except [~g!err Exception]
- ;;          ~@body
- ;;          (raise ~g!err))))
-
- ;;   ;; sharp macros
- ;;   (defmacro! pr (o!arg)
- ;;     `(do
- ;;        (print ~o!arg)
- ;;        ~o!arg))
-
-
-(defn assoc/pcl [e dic] (if (in e dic) (get dic e) None))
-(defn assoc/cl  [e dic] (if (in e dic) (get dic e) nil/cl))
-  ;; (assoc/cl 'x {'x 10 'y 20})
+(defn assoc/clp [e dic] (if (in e dic) (get dic e) None))
+(defn assoc/cl  [e dic] (if (in e dic) (get dic e) [])) ;;nil/cl))
+;; (assoc/cl 'x {'x 10 'y 20})
 

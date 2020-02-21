@@ -14,13 +14,13 @@ version = next((line.split('=')[1].strip().replace("'", '')
                '0.0.dev0')
 
 setup(
-    name='hycl',
+    name='hyclb',
     version=version,
-    description='hycl : common-lisp-like functions and macros for hylang',
+    description='hyclb : common-lisp-like functions and macros for hylang',
 
     url='https://github.com/niitsuma/hycl/',
-    author='Riku Togashi',
-    author_email='riktor1221@gmail.com',
+    author='Hirotaka Niitsuma, Riku Togashi',
+    author_email='hirotaka.niitsuma@gmail.com',
     license='MIT License',
     classifiers=[
 	'License :: OSI Approved :: MIT License',

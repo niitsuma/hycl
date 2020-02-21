@@ -3,7 +3,7 @@
 (require [hy.contrib.walk [let]])
 
 ;;(import  [hycl.cons [*]])
-(import  [hycl.nil [*]])
+;;(import  [hycl.nil [*]])
 (import  [hycl.core [*]])
 (require [hycl.core [*]])
 
@@ -102,27 +102,25 @@
     (if/cl [] True )
     (if/cl (,) True )
     (if/cl '() True )
-    nil/cl
+    ;;nil/cl
+    []
     )
   (assert-all-equal
-    (if/pcl nil/cl True )    
-    (if/pcl [] True )
-    (if/pcl (,) True )
-    (if/pcl '() True )
+    (if/clp nil/cl True )    
+    (if/clp [] True )
+    (if/clp (,) True )
+    (if/clp '() True )
     None
     )
 )
 
 (defn test-null []
   (assert-all-equal
-     (null/cl? nil/cl)
-     (null/cl? [])
-     (null/cl? (,))
-     (null/cl? '())
+     (null/cl nil/cl)
+     (null/cl [])
+     (null/cl (,))
+     (null/cl '())
      True)
-  ;; (eq_
-  ;;   (nil/cl-macro )
-  ;;   nil/cl)
   )
 
 (defn test-assoc []
@@ -132,10 +130,11 @@
     )
   (eq_
     (assoc/cl 'z {'x 10 'y 20})
-    nil/cl
+    ;;nil/cl
+    []
     )
   (eq_
-    (assoc/pcl 'z {'x 10 'y 20})
+    (assoc/clp 'z {'x 10 'y 20})
     None
     )
   )
@@ -145,10 +144,17 @@
   (eq_
     (mapcan     (fn [x] [(+ x 10) "x"]) [1 2 3 4])
     [11 "x" 12 "x" 13 "x" 14 "x"])
-
   (eq_
     (mapcan     (fn [x] [(+ x 10) None]) [1 2 3 4])
     [11 None 12 None 13 None 14 None])
+  (eq_
+    (mapcan     (fn [x] [(+ x 10) []]) [1 2 3 4])
+    [11 [] 12 [] 13 [] 14 [] ])
+  (eq_
+    (append/cl [1 []] [3 4 []] )
+    [1  [] 3 4  [] ]
+    )
+
   )
   
 (defn test-mapcar []
@@ -159,6 +165,9 @@
   (eq_
     (mapcar     (fn [x] [(+ x 10) None]) [1 2 3 4])
     [[11 None] [12 None] [13 None] [14 None ]])
+  (eq_
+    (mapcar     (fn [x] [(+ x 10) [] ]) [1 2 3 4])
+    [[11 []] [12 []] [13 []] [14 [] ]])
   )
 
 (defn test-let/cl []
@@ -177,11 +186,18 @@
       ((= 1 2) "aa")
       ((= 2 2) "bb"))
     "bb")
-  ;; (eq_
-  ;;   (cond/cl
-  ;;     ((= 1 2) "aa")
-  ;;     ((= 2 3) "bb"))
-  ;;   nil/cl)
+  (eq_
+    (null/cl
+      (cond/cl
+        ((= 1 2) "aa")
+        ((= 2 3) "bb")))
+    True)
+  (eq_
+    (cond/cl
+      ((= 1 2) "aa")
+      ((= 2 3) "bb"))
+    []
+    )
   )
 
 (defn test-multiple-value-bind []
@@ -191,12 +207,25 @@
       (1 2 3)
       [x y z u])
     [1 2 3 None] )
+
+  (eq_
+    (multiple-value-bind/cl
+      (x y z u)
+      (1 2 3)
+      [x y z u])
+    [1 2 3 [] ] )
+  
+  
   ;; (eq_
-  ;;   (multiple-value-bind/cl
-  ;;     (x y z u)
-  ;;     (1 2 3)
-  ;;     [x y z u])
-  ;;   [1 2 3 nil/cl]  )
+  ;;   (null/cl
+  ;;     (get
+  ;;       (multiple-value-bind/cl
+  ;;         (x y z u)
+  ;;         (1 2 3)
+  ;;         [x y z u])
+  ;;       3))
+  ;;   True)
+  
   )
 
 (defn test-dbind []
@@ -244,7 +273,7 @@
 
   (eq_
     (testfn2 [] 2)
-    nil/cl)
+    [])
   
   
   )
