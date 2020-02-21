@@ -6,6 +6,9 @@
 (require [hy.contrib.loop [loop]])
 (require [hy.contrib.walk [let]])
 
+(import  [hyclb.core [*]])
+(require [hyclb.core [*]])
+
 
 ;; (import [cons [cons :as  cons/py car :as car/py cdr :as cdr/py]]) ;;;can not apply on lisp
 ;; (import [cons.core [ConsPair MaybeCons ConsNull]])
@@ -262,9 +265,27 @@ be nested in `cons`es, e.g.
 (defmacro let/cl [var-pairs &rest body]
   (setv var-names (list (map first  var-pairs))
         var-vals  (list (map second var-pairs)))
-  `(let [ ~@(+ #*(lfor (, x y) (zip var-names var-vals) [x y]))]
-     ~@body
-     ))
+  `((fn [~@var-names] ~@body) ~@var-vals))
+
+
+;; (defmacro let/cl [var-pairs &rest body]
+;;   (setv var-names (list (map first  var-pairs))
+;;         var-vals  (list (map second var-pairs)))
+;;   ;;`(let [ ~@(+ #*(lfor (, x y) (zip var-names var-vals) [x y]))]
+;;   ;; `(let [ ~@(mapcan (fn [xy] xy)  (list (zip var-names var-vals))) ]
+;;   ;;    ;;(+ #*(lfor (, x y) (zip var-names var-vals) [x y]))
+;;   ;;    ~@body
+;;   ;;    ))
+
+;; (setv var-names '(a b c)
+;;       var-vals   [1 2 3])
+;; (mapcan (fn [xy] xy)  (list (zip var-names var-vals)))
+
+;; (let/cl ((x 1)
+;;           (y 2))
+;;       (setv y (+ x y))
+;;       [x y])
+
 (defmacro let* [varval &rest body]
   (if (<= (len varval) 1)
       `(let/cl ~varval ~@body)

@@ -12,8 +12,8 @@
 
 ;;(import [gasync.core [q-exp-fn?]])
 
-;;(import [hycl.nil [*]])
-(import [hycl.core [*]])
+
+(import [hyclb.core [*]])
 
 
 (setv element-renames
@@ -23,15 +23,15 @@
        'if 'if/cl
        'let 'let/cl
        'setq 'setv
+       'setf 'setv       
        'atom 'atom/cl
        't True
        }
       )
 
-;;(defn q-element-renames? [s] (and (symbol? s)  (in s element-renames)))
+;;(defn q-element-renames? [p] (and (symbol? p)  (in p element-renames)))
 (defn q-element-cl-replace [p]
-  (if (and (symbol? s)  (in s element-renames))
-    ;;(q-element-renames? p)
+  (if (and (symbol? p)  (in p element-renames))
       (get element-renames p) p))
 (defn q-exp-cl-rename-deep [p] (postwalk q-element-cl-replace p))
 

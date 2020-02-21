@@ -2,13 +2,11 @@
 
 (require [hy.contrib.walk [let]])
 
-;;(import  [hycl.cons [*]])
-;;(import  [hycl.nil [*]])
-(import  [hycl.core [*]])
-(require [hycl.core [*]])
+(import  [hyclb.core [*]])
+(require [hyclb.core [*]])
 
-(import  [hycl.util [*]])
-(require [hycl.util [*]])
+(import  [hyclb.util [*]])
+(require [hyclb.util [*]])
 
 
 (defn assert-all-equal [&rest tests]
@@ -170,7 +168,7 @@
     [[11 []] [12 []] [13 []] [14 [] ]])
   )
 
-(defn test-let/cl []
+(defn test-let []
   (eq_
     (let/cl ((x 1)
              (y 2))
@@ -180,7 +178,7 @@
   )
 
 
-(defn test-cond/cl []
+(defn test-cond []
   (eq_
     (cond/cl
       ((= 1 2) "aa")
