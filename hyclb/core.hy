@@ -1,22 +1,22 @@
 
 
-(import [collections.abc [Iterable]])
-(import  functools)
-
 (require [hy.contrib.loop [loop]])
-(require [hy.contrib.walk [let]])
+;;(require [hy.contrib.walk [let]])
 
-(import  [hyclb.core [*]])
-(require [hyclb.core [*]])
+;; (import  [hyclb.core [*]])
+;; (require [hyclb.core [*]])
 
 (import [hy.contrib.hy-repr [hy-repr]])
 
 ;; (import [cons [cons :as  cons/py car :as car/py cdr :as cdr/py]]) ;;;can not apply on lisp
 ;; (import [cons.core [ConsPair MaybeCons ConsNull]])
 
-(eval-and-compile
+(eval-and-compile 
+  (import [collections.abc [Iterable]])
+  (import  functools)
+  (import numpy)
+ 
   ;;(import [hy.models [HyObject HySequence]])
-  ;;(import [hycl.nil [*]])
 
   (defclass Nil/cl
     []
@@ -35,11 +35,11 @@
       [(= (,) x) True]
       [(= '() x) True]
       [True False]))
-  )
+  
 
-;; take ConsPair from ohttps://github.com/algernon/adderall/blob/master/adderall/internal.hy
-(defclass ConsPair [Iterable]
-  "Construct a cons list.
+  ;; take ConsPair from ohttps://github.com/algernon/adderall/blob/master/adderall/internal.hy
+  (defclass ConsPair [Iterable]
+    "Construct a cons list.
 
 A Python `list` is returned when the cdr is a `list` or `None`; otherwise, a
 `ConsPair` is returned.
@@ -49,108 +49,189 @@ be nested in `cons`es, e.g.
 
     (ConsPair car-1 car-2 car-3 cdr) == (ConsPair car-1 (cons car-2 (cons car-3 cdr)))
 "
-  (defn --new-- [cls &rest parts]
-    (if (> (len parts) 2)
-        (reduce (fn [x y] (ConsPair y x))
-                (reversed parts))
-        ;; Handle basic car, cdr case.
-        (do (setv car-part (-none-to-empty-or-list
-                             (first parts)))
-            (setv cdr-part (-none-to-empty-or-list
-                             (if
-                               (and (coll? parts)(> (len parts) 1))
-                               (last parts)
-                               ;;None
-                               nil/cl
-                               )))
+    (defn --new-- [cls &rest parts]
+      (if (> (len parts) 2)
+          (reduce (fn [x y] (ConsPair y x))
+                  (reversed parts))
+          ;; Handle basic car, cdr case.
+          (do (setv car-part (-none-to-empty-or-list
+                               (first parts)))
+              (setv cdr-part (-none-to-empty-or-list
+                               (if
+                                 (and (coll? parts)(> (len parts) 1))
+                                 (last parts)
+                                 ;;None
+                                 nil/cl
+                                 )))
+              (cond
+                [(instance? Nil/cl cdr-part)
+                 `(~car-part)]
+                [(instance? hy.models.HyExpression cdr-part)
+                 `(~car-part ~@cdr-part)]
+                [(tuple? cdr-part)
+                 (tuple (+ [car-part] (list cdr-part)))]
+                [(list? cdr-part)
+                 ;; Try to preserve the exact type of list
+                 ;; (e.g. in case it's actually a HyList).
+                 (+ ((type cdr-part) [car-part]) cdr-part)]
+                [True
+                 (do
+                   (setv instance (.--new-- (super ConsPair cls) cls))
+                   (setv instance.car car-part)
+                   (setv instance.cdr cdr-part)
+                   instance)]))))
+    (defn --hash-- [self]
+      (hash [self.car, self.cdr]))
+    (defn --eq-- [self other]
+      (and (= (type self) (type other))
+           (= self.car other.car)
+           (= self.cdr other.cdr)))
+    (defn --iter-- [self]
+      (yield self.car)
+      (if (coll? self.cdr) ;;(list? self.cdr)
+          (for [x self.cdr] (yield x))
+          (raise StopIteration))
+      )
+    (defn --repr-- [self]
+      ;;(.format "({} . {})" (hy-repr self.car) (hy-repr self.cdr))
+      (.format "(cons {} {})" (hy-repr self.car) (hy-repr self.cdr))
+      )
+    )
+
+  (defn -none-to-empty-or-list [x]
+    (cond
+      ;;[(none? x) (list)]
+      [(tuple? x) x]
+      [(and (coll? x)
+            (not (cons? x))
+            (not (list? x)))
+       (list x)]
+      [True x]))
+
+  ;; A synonym for ConsPair
+  (setv cons ConsPair)
+
+  ;; (defun car (ls)
+  ;;   (first ls))
+
+  (defn car [z]
+    (if (null/cl z) nil/cl
+        (or (getattr z "car" None)
+            (-none-to-empty-or-list (first z)))))
+
+  (defn cdr [z]
+    (if (null/cl z) nil/cl
+        (or (getattr z "cdr" None)
             (cond
-              [(instance? Nil/cl cdr-part)
-               `(~car-part)]
-              [(instance? hy.models.HyExpression cdr-part)
-               `(~car-part ~@cdr-part)]
-              [(tuple? cdr-part)
-               (tuple (+ [car-part] (list cdr-part)))]
-              [(list? cdr-part)
-               ;; Try to preserve the exact type of list
-               ;; (e.g. in case it's actually a HyList).
-               (+ ((type cdr-part) [car-part]) cdr-part)]
-              [True
-               (do
-                 (setv instance (.--new-- (super ConsPair cls) cls))
-                 (setv instance.car car-part)
-                 (setv instance.cdr cdr-part)
-                 instance)]))))
-  (defn --hash-- [self]
-    (hash [self.car, self.cdr]))
-  (defn --eq-- [self other]
-    (and (= (type self) (type other))
-         (= self.car other.car)
-         (= self.cdr other.cdr)))
-  (defn --iter-- [self]
-    (yield self.car)
-    (if (coll? self.cdr) ;;(list? self.cdr)
-        (for [x self.cdr] (yield x))
-        (raise StopIteration))
+              [(instance? range z) (cut z 1)]
+              [(iterator? z) (rest z)]
+              [True ;;(or (tuple? z) (list? z))
+               ((type z) (list (rest z)))]
+              ;;[True (rest z)]
+              ;;  ;; Try to preserve the exact type of list
+              ;;  ;; (e.g. in case it's actually a HyList).
+              ;;((type z) (list (rest z)))
+              ))))
+
+
+  (defn cons? [a]
+    (cond [(null/cl a) False]
+          [(instance? ConsPair a) True]
+          ;;[(coll? a) (not (empty? a)) True]
+          [(or (list? a) (tuple? a) ) (not (empty? a)) True]
+          [True False])
+    ;; (if (or (and
+    ;;           (list? a)
+    ;;           (not (empty? a)))
+    ;;         (instance? ConsPair a))
+    ;;     True
+    ;;     False))
     )
-  (defn --repr-- [self]
-    ;;(.format "({} . {})" (hy-repr self.car) (hy-repr self.cdr))
-    (.format "(cons {} {})" (hy-repr self.car) (hy-repr self.cdr))
-    )
+
+
+  (defn consp [el]  (cons? el))
+  (defn atom/cl [x] (not (cons? x)))
+
+  (defn eq [x y]      (is x y))
+  (defn equals [x y]  (= x y))
+
+  ;; ;; numerical functions
+  (defn mod [n m] (% n m))
+  (defn zerop [n] (= n 0))
+  (defn plusp [n] (> n 0))
+  (defn minusp [n] (< n 0))
+  (defn oddp [n] (zerop (mod n 2)))
+  (defn evenp [n] (not (oddp n)))
+  (defn divisible [n m] (zerop (mod n m)))
+
+  (defn length [l] (len l))
+  (defn emptyp [l] (empty? l))
+
+  (defn caar [ls]  (-> ls car car))
+  (defn cddr [ls]  (-> ls cdr cdr))
+  (defn cadr [ls]  (-> ls cdr car))
+  (defn cdar [ls]  (-> ls car cdr))
+
+  (defn apply/cl [f ls]  (f #*ls))
+
+  ;; (defmacro push (el ls)
+  ;;   `(setf ~ls (cons ~el ~ls)))
+
+
+
+  (defn nreverse [ls]
+    (cond
+      [(list? x)
+       (do (.reverse ls)
+           ls)]
+      [True (do
+              (setv tmp (list ls))
+              (.reverse tmp)
+              (type ls )tmp)
+       ]))
+
+  (defn nconc [x y]
+    (cond
+      [(null/cl x) y]
+      [(list? x) (do (.extend x y) x)]
+      [True (+ x y)]
+      ;;[True (cons x y)] ;;not correct dealing cdr pointer 
+      ))
+
+  (defn append/cl [x y]
+    (if (coll? y)
+        (if (empty? x) y
+            ;;(nconc (car x)   (append/cl (cdr x) y))
+            (nconc (cut x 0 1) (append/cl (cdr x) y)))
+        (cons x y)))
+
+  (defn mapcan [func ls]
+    (if (empty? ls)
+        ls
+        (append/cl
+          (func (car ls))
+          (mapcan func (cdr ls)))))
+
+  (defn mapcar [func &rest seqs]  ((type (car seqs))  (apply/cl (functools.partial map func) seqs))   )
+
+  ;;   (defun group (src n)
+  ;;     (HyExpression (apply zip (* [(iter src)] n)))))
+
+  (defn values [&rest returns]   (tuple returns))
+
+  (defn assoc/clp [e dic] (if (in e dic) (get dic e) None))
+  (defn assoc/cl  [e dic] (if (in e dic) (get dic e) [])) ;;nil/cl))
+  ;; (assoc/cl 'x {'x 10 'y 20})
+
+
+  (setv nan numpy.nan
+        NAN numpy.nan)
+
+  (defn declare/cl   [&rest args]  None)
+  (defn ignorable/cl [&rest args]  None)
+
+
   )
-
-(defn -none-to-empty-or-list [x]
-  (cond
-    ;;[(none? x) (list)]
-    [(tuple? x) x]
-    [(and (coll? x)
-          (not (cons? x))
-          (not (list? x)))
-     (list x)]
-    [True x]))
-
-;; A synonym for ConsPair
-(setv cons ConsPair)
-
-;; (defun car (ls)
-;;   (first ls))
-
-(defn car [z]
-  (if (null/cl z) nil/cl
-      (or (getattr z "car" None)
-          (-none-to-empty-or-list (first z)))))
-
-(defn cdr [z]
-  (if (null/cl z) nil/cl
-      (or (getattr z "cdr" None)
-          (cond
-            [(instance? range z) (cut z 1)]
-            [(iterator? z) (rest z)]
-            [True ;;(or (tuple? z) (list? z))
-             ((type z) (list (rest z)))]
-            ;;[True (rest z)]
-            ;;  ;; Try to preserve the exact type of list
-            ;;  ;; (e.g. in case it's actually a HyList).
-            ;;((type z) (list (rest z)))
-        ))))
-
-
-(defn cons? [a]
-  (cond [(null/cl a) False]
-        [(instance? ConsPair a) True]
-        ;;[(coll? a) (not (empty? a)) True]
-        [(or (list? a) (tuple? a) ) (not (empty? a)) True]
-        [True False])
-  ;; (if (or (and
-  ;;           (list? a)
-  ;;           (not (empty? a)))
-  ;;         (instance? ConsPair a))
-  ;;     True
-  ;;     False))
-  )
-
-
-(defn consp [el]  (cons? el))
-(defn atom/cl [x] (not (cons? x)))
 
 (defmacro! if/clp [o!c x &optional y ]
   `(if (null/cl ~o!c) ~y (if ~o!c ~x ~y)))
@@ -181,17 +262,6 @@ be nested in `cons`es, e.g.
 ;;     (if (not (typep doc str))
 ;;         `(defn ~name ~(list lambda-list) ~@(cons doc (HyExpression body)))
 ;;         `(defn ~name ~(list lambda-list) doc ~@body)))
-(defn eq [x y]      (is x y))
-(defn equals [x y]  (= x y))
-
-;; ;; numerical functions
-(defn mod [n m] (% n m))
-(defn zerop [n] (= n 0))
-(defn plusp [n] (> n 0))
-(defn minusp [n] (< n 0))
-(defn oddp [n] (zerop (mod n 2)))
-(defn evenp [n] (not (oddp n)))
-(defn divisible [n m] (zerop (mod n m)))
 
 (defmacro incf [n  &optional [delta 1]]
   `(setv ~n (+ ~n ~delta)))
@@ -210,57 +280,11 @@ be nested in `cons`es, e.g.
 ;; (defun lst (&rest args)
 ;;   (HyExpression args))
 
-(defn length [l] (len l))
-(defn emptyp [l] (empty? l))
 
-(defn caar [ls]  (-> ls car car))
-(defn cddr [ls]  (-> ls cdr cdr))
-(defn cadr [ls]  (-> ls cdr car))
-(defn cdar [ls]  (-> ls car cdr))
-
-(defn apply/cl [f ls]  (f #*ls))
-
-;; (defmacro push (el ls)
-;;   `(setf ~ls (cons ~el ~ls)))
-
-(defn nreverse [ls]
-  (cond
-    [(list? x)
-     (do (.reverse ls)
-         ls)]
-    [True (do
-            (setv tmp (list ls))
-            (.reverse tmp)
-            (type ls )tmp)
-     ]))
-
-(defn nconc [x y]
-  (cond
-    [(null/cl x) (cons x y)]
-    [(list? x) (do (.extend x y) x)]
-    [True (cons x y)] ;;not correct dealing cdr pointer 
-    ))
-
-(defn append/cl [x y]
-  (if (empty? x) y
-      (nconc (car x) (append/cl (cdr x) y))
-      ))
-
-(defn mapcan [func ls]
-  (if (empty? ls)
-      ls
-      (append/cl
-        (func (car ls))
-        (mapcan func (cdr ls)))))
-
-(defmacro progn [&rest body]
+(defmacro progn [&rest body] 
   `(do ~@body))
 
 
-(defn mapcar [func &rest seqs]  ((type (car seqs))  (apply/cl (functools.partial map func) seqs))   )
-
-;;   (defun group (src n)
-;;     (HyExpression (apply zip (* [(iter src)] n)))))
 
 
 (defmacro lambda [lambda-list &rest body]
@@ -401,11 +425,6 @@ be nested in `cons`es, e.g.
          )))
 
 
-(defn values [&rest returns]   (tuple returns))
-
-;;   ;; multiple-value-bind
-;;   (defmacro mvb (var-list expr &rest body)
-;;     `(dbind ~var-list ~expr ~@body))
 
 (defmacro multiple-value-bind [var-list expr &rest body]
   (setv n1 (len var-list)
@@ -453,13 +472,5 @@ be nested in `cons`es, e.g.
 ;;     `(do
 ;;        (print ~o!arg)
 ;;        ~o!arg))
-
-
-(defn assoc/clp [e dic] (if (in e dic) (get dic e) None))
-(defn assoc/cl  [e dic] (if (in e dic) (get dic e) [])) ;;nil/cl))
-;; (assoc/cl 'x {'x 10 'y 20})
-
-
-
 
 

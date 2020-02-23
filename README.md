@@ -45,26 +45,21 @@ Example
 
 
 (import  [hyclb.cl4hy [*]])
-
-(setv clisp (Clisp :quicklisp True))
-(clisp.eval_qexpr  '(ql:quickload "alexandria"))
-(clisp.eval_str  "(alexandria:destructuring-case '(:x 0 1 2)   ((:x x y z) (list x y z))  ((t &rest rest) :else))")
-==> [0 1 2]
-
-
 (require  [hyclb.cl4hy [*]])
 
+(setv clisp (Clisp :quicklisp True))
+(clisp.eval_qexpr '(ql:quickload "anaphora"))
+(clisp.eval_qexpr '(rename-package 'anaphora 'ap) )
+
 (import numpy) 
-(defun testfn3 (X Y)
-  (numpy.random.rand
-    (get 
-      (alexandria:destructuring-case
-        '(:a 0 X Y)   ((:a u v w) (list 1 2 u v w ))  ((t &rest rest) :else))
-      0)
+(defun test_alet2 (x y)
+  (setq y (+ 10 y))
+    (numpy.sin
+      (* 
+        (ap:alet (+ x y)  (+ 1 ap:it))
+        (/ numpy.pi 180)))
     )
-  )
-(print (testfn3 3 2))
-==> [0.51005462]
+==> 1.0	
 
 ```
 

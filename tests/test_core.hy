@@ -93,6 +93,60 @@
     (, 'b))
   )
 
+(defn test-nconc []
+  (assert-all-equal
+    (nconc '(a b) '(c d))
+    (nconc '(a b) ['c 'd])
+    (nconc '(a b) (, 'c 'd))
+    '(a b c d))
+  (eq_
+    (nconc ['a 'b]  ['c 'd])
+    ['a 'b 'c 'd] )
+  (eq_
+    (nconc (, 'a 'b) (, 'c 'd))
+    (, 'a 'b 'c 'd ))
+
+  (eq_
+    (nconc '() '(c d))
+    '(c d))
+  (eq_
+    (nconc []  ['c 'd])
+    ['c 'd] )
+  (eq_
+    (nconc (, ) (, 'c 'd))
+    (, 'c 'd ))
+  )
+
+(defn test-append []
+  (assert-all-equal
+    (append/cl '(a b) '(c d))
+    (append/cl '(a b) ['c 'd])
+    (append/cl '(a b) (, 'c 'd))
+    '(a b c d))
+  (eq_
+    (append/cl ['a 'b]  ['c 'd])
+    ['a 'b 'c 'd] )
+  (eq_
+    (append/cl (, 'a 'b) (, 'c 'd))
+    (, 'a 'b 'c 'd ))
+  (eq_
+    (append/cl '(a b) 'c)
+    (cons '(a b) 'c))
+  (eq_
+    (append/cl ['a 'b]  'c)
+    (cons ['a 'b] 'c))
+  (eq_
+    (append/cl (, 'a 'b) 'c)
+    (cons (, 'a 'b) 'c))
+  
+  ;; (append '(a b c) '(d e f) '() '(g)) =>  (A B C D E F G)
+  ;; (append '(a b c) 'd) =>  (A B C . D)
+  ;; (setq lst '(a b c)) =>  (A B C)
+  ;; (append lst '(d)) =>  (A B C D)
+  ;; lst =>  (A B C)
+  ;; (append) =>  NIL
+  ;; (append 'a) =>  A
+  )
 
 (defn test-if []
   (assert-all-equal
@@ -114,7 +168,7 @@
 
 (defn test-null []
   (assert-all-equal
-     (null/cl nil/cl)
+    (null/cl nil/cl)
      (null/cl [])
      (null/cl (,))
      (null/cl '())
@@ -213,16 +267,15 @@
       [x y z u])
     [1 2 3 [] ] )
   
-  
-  ;; (eq_
-  ;;   (null/cl
-  ;;     (get
-  ;;       (multiple-value-bind/cl
-  ;;         (x y z u)
-  ;;         (1 2 3)
-  ;;         [x y z u])
-  ;;       3))
-  ;;   True)
+  (eq_
+    (null/cl
+      (get
+        (multiple-value-bind/cl
+          (x y z u)
+          (1 2 3)
+          [x y z u])
+        3))
+    True)
   
   )
 
