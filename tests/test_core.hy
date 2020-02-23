@@ -174,6 +174,21 @@
      (null/cl '())
      True)
   )
+(defn test-remove []
+  (setv l   [1 3 5 6 3 6 3])
+  (setv v (, 1 3 5 6 3 6 3))
+  (setv e '( 1 3 5 6 3 6 3))
+  (eq_
+    (remove/cl 3 l)
+    [1 5 6 6] )
+  (eq_
+    (remove/cl 3 v)
+    (, 1 5 6 6)   )
+  (eq_
+    (remove/cl 3 e)
+     '(1 5 6 6)   )
+)  
+
 
 (defn test-assoc []
   (eq_

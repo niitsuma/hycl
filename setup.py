@@ -30,7 +30,7 @@ setup(
     keywords='hy lisp common-lisp',
     install_requires=['cl4py'], #'hy>=0.15' was removed becase gentoo linux hy package bug
     packages=['hyclb'],
-    package_data={'hyclb': ['*.hy'],},
+    package_data={'hyclb': ['*.hy','*.lisp'],},
     test_suite='nose.collector',
     tests_require=['nose'],
     platforms='any',

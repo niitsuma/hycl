@@ -1,5 +1,5 @@
 
-(import sys)
+;;(import sys)
 (import re)
 (import numpy)
 (import importlib.machinery)
@@ -21,14 +21,77 @@
 (import cl4py)
 (import [cl4py.reader [*]]
         [cl4py.data [*]]
-        [cl4py.circularity  [*]]
+        ;;[cl4py.circularity  [*]]
         )
 
 ;;(setv hyclb.cl4hy-loaded True)
 ;;(eval-and-compile
 (import cl4py)
 
-(defn single_quote [r s c] (quote (r.read_aux s) ))  ;;  return Cons("COMMON-LISP:QUOTE", Cons(r.read_aux(s), None))
+(defclass SharpsignSharpsign []
+  (defn __init__ [self label]
+    (setv self.label  label))
+  (defn  __repr__ [self]
+    (.format "#{}#" self.label)))
+(defclass SharpsignEquals []
+  (defn __init__ [self label obj]
+    (setv self.label  label
+          self.obj  obj))
+  (defn __repr__ [self]
+    (.format "#{}={}" self.label self.obj)))
+(defn circularize [obj]
+    """Modify and return OBJ, such that each instance of SharpsignEquals or
+    SharpsignSharpsign is replaced by the corresponding object.
+    """
+  (setv table {})
+  (defn copy [obj]
+    (cond
+      [(isinstance obj SharpsignEquals)
+       (do  (setv result (copy obj.obj)
+                  (get table obj.label) result)
+            result)]
+      [(hyclb.core.cons? obj)
+       (hyclb.core.cons
+         (copy (hyclb.core.car obj))
+         (copy (hyclb.core.cdr obj)))]
+      [(coll? obj) ((type obj) (lfor elt obj (copy elt)))]
+      [True obj]))
+  (defn finalize [obj]
+    (cond
+      [(isinstance obj SharpsignSharpsign) (get table obj.label)]
+      [(coll? obj)
+       ((type obj)
+         (lfor elt obj
+               (if (isinstance elt SharpsignSharpsign)
+                   (get table elt.label)
+                   (finalize elt))))]
+      [(hyclb.core.cons? obj)
+       (do (setv c (hyclb.core.car obj)
+                 d (hyclb.core.cdr obj))
+           (hyclb.core.cons
+             (if (isinstance c SharpsignSharpsign)
+                 (get table c.label)
+                 (finalize c))
+             (if (isinstance d SharpsignSharpsign)
+                 (get table d.label)
+                 (finalize d))))]
+      [True obj]))
+    (setv result (copy obj))
+    (finalize result))
+
+(defn single_quote [r s c] (quote (r.read_aux s) )) 
+(defn sharpsign_equal [r s c n]
+  (setv value  (r.read_aux s))
+  (SharpsignEquals n value))
+(defn sharpsign_sharpsign [r s c n] (SharpsignSharpsign n))
+
+;;;;not compat 
+;; (defn sharpsign_left_parenthesis [r s c n]
+;;   (setv l  (r.read_delimited_list ")",s, True))
+;;   (if (not l)
+;;       (numpy.array []) ;; '()
+;;       (numpy.array l)))
+
 (defn sharpsign_m [r s c n]
   (setv data  (r.read_aux s))
   ;;(print "sharpsign_m" data)
@@ -37,14 +100,18 @@
         spec   (importlib.machinery.ModuleSpec name None)
         module (importlib.util.module_from_spec spec)
         module.__class__  Package)
+  ;;(print module)
   ;;# Now register all exported functions.
   (for [cons1  alist]
-    (setattr module
-             (. (hyclb.core.car cons1) python_name)
-             ;;cons.car.python_name
-             (hyclb.core.cdr cons1)
-             ))
+    ;;(print cons1)
+    (setv car1 (hyclb.core.car cons1))
+    (if (symbol? car1)
+        (setattr module  (str car1) (hyclb.core.cdr cons1)  )
+        (if (hasattr car1 "python_name")
+            (setattr module (. car1 python_name) (hyclb.core.cdr cons1) ) )))
+  ;;(print module)
   module)
+
 (defn sharpsign_colon [r s c n]   ;;gensym var
   (setv data (r.read_aux s))
   ;;(print "sharpsign_colon" data)
@@ -60,6 +127,7 @@
           (setv c  (c.upper))
           (break))))
   (setv n (if digits (int digits) 0))
+  ;;(print "sharpsign ret" c n r s)
   ((r.get_dispatch_macro_character "#" c) r s c n))
 
 
@@ -68,9 +136,36 @@
     (.__init__ (super) lisp)
     (self.set_macro_character "'" single_quote)
     (self.set_macro_character "#" sharpsign)
+    (self.set_dispatch_macro_character "#" "(" sharpsign_left_parenthesis)
     (self.set_dispatch_macro_character "#" "M" sharpsign_m)
+    (self.set_dispatch_macro_character "#" "=" sharpsign_equal)
+    (self.set_dispatch_macro_character "#" "#" sharpsign_sharpsign)
     (self.set_dispatch_macro_character "#" ":" sharpsign_colon)
     )
+
+  (defn read [self stream &optional [recursive False]]
+    (if (not (isinstance stream Stream))
+             (setv stream  (Stream stream :debug self.lisp.debug)))
+    (setv value  (self.read_aux stream))
+    (if recursive value (circularize value)))
+  
+  (defn reads [self stream &optional [recursive False]]
+    (if (not (isinstance stream cl4py.data.Stream))
+        (setv stream  (Stream stream :debug self.lisp.debug)))
+    (setv sexps [])
+    (while True
+      (try 
+        (.append sexps (self.read stream recursive))
+        ;;(print (hy-repr sexps ))
+        (except [e [ EOFError ]]
+          (break)) )
+      )
+    sexps)
+
+  (defn loadsexps [self fpath]
+    (with [f (open fpath)]
+      (self.reads f)))
+
   
   (defn read_aux [self stream]
     (while True
@@ -120,6 +215,8 @@
               [True (token.append y)])))
       
       ;;(print token)
+      ;;(print (.join "" token))
+      
       ;;# 10.
       ;; (setv ret (self.parse (.join "" token)))
       ;; (print "ret" ret)
@@ -166,9 +263,11 @@
                 delimiter (m.group 2)
                 name  (m.group 3))
           ;;(print "symbol=" package delimiter name  (.upper name) )
+          
           ;;(if (= (.upper name) "NAN") (return numpy.nan))
-          (if (= (.upper name) "T"  ) (return True))
-          (if (= (.upper name) "NIL") (return '()))
+          ;;(if (= (.upper name) "T"  ) (return True))
+          ;;(if (= (.upper name) "NIL") (return '()))
+          
           ;; (if (in (.upper package) ["CL" "COMMON-LISP"])
           ;;     (return (hy.models.HySymbol name)))
           ;; (if package
@@ -186,10 +285,12 @@
                   (return (hy.models.HySymbol (.lower name)))
                   (return (hy.models.HySymbol
                             (.lower
-                              (+ package ":" name))
-                            ;; (.replace 
-                            ;;   (+ package "." name)
-                            ;;   ":" ".")
+                              (+ package delimiter name)
+                              ;;(+ package "::" name)
+                              ;; (.replace 
+                              ;;   (+ package "." name)
+                              ;;   ":" ".")
+                              )
                             ))))))
     ;;     (do 
     ;;       (if (= (.upper name) "T"  ) (return True))
@@ -274,7 +375,8 @@
     (self.stdin.write (+ sexp "\n"))
     (setv pkg (self.readtable.read self.stdout))
     ;;(print "pkg" (hy-repr pkg))
-    (setv val (self.readtable.read self.stdout))
+    ;;(setv val (self.readtable.read self.stdout :recursive True))
+    (setv val (self.readtable.read self.stdout))    
     ;;(print "val" (hy-repr val))
     (setv err (self.readtable.read self.stdout))
     ;;(print "err" (hy-repr err))
@@ -338,22 +440,29 @@
 
 (clisp.eval_qexpr '(ql:quickload "anaphora"))
 (clisp.eval_qexpr '(rename-package 'anaphora 'ap) )
-
+;;(clisp.eval_qexpr '(add-nickname :ap :anaphora))
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
-(defmacro ap:ignore-first [&rest args]
+
+
+(defn ap::ignore-first [&rest args]
   (if (= (len args)  2)
       (get args 1)
       (cut args 1 None)
   ))
 
 
-
 (import [hy.contrib.walk [postwalk prewalk]])
 
+;; (setv renames-when-load
+;;       {
+;;        'defmacro 'defmacro/cl
+;;        }
+;;       )
+
 (setv cl-imported-keywords
-      ["let*" "progn" "progn" "identity"
+      ["let*" "progn" "identity"
        "ap:it" "ap:ignore-first"
        ]
       )
@@ -362,15 +471,25 @@
       {
        'nil 'nil/cl
        'null 'null/cl
+       't True
+       'nan numpy.nan
        'if 'if/cl
        'cond 'cond/cl
        'let 'let/cl
-       'setq 'setv
-       'setf 'setv       
+       'list 'list/cl
+       'first 'car
+       'rest  'cdr
+       'remove 'remove/cl
+       'append 'append/cl
+       'apply  'apply/cl
        'atom 'atom/cl
-       't True
+       'multiple-value-bind 'multiple-value-bind/cl
+       'return-form 'return-form/cl
+       'block  'block/cl
        'declare   'declare/cl
        'ignorable 'ignorable/cl
+       'setq 'setv
+       'setf 'setv
        }
       )
 (.update element-renames
@@ -427,11 +546,38 @@
      ~@(lfor p code
              (do
                (setv ret1 (q-exp-clmc-rename-deep p) )
-               ;(print "ret1" (hy-repr ret1))
+               ;;(print "ret1" (hy-repr ret1))
                (setv ret2 (q-exp-cl-rename-deep ret1)) 
-               ;(print "ret2" (hy-repr ret2))
+               ;;(print "ret2" (hy-repr ret2))
                ret2
                ))))
 
+
+;; (defmacro defmacro/cl [&rest args]
+;;   `(defmacro ~args) 
+;;   )
+
+;; (defmacro progn-helper [body]  `(do ~@body))
+
+;; (defn load/cl [fpath]
+;;   (with [f (open fpath)]
+;;     (for [p (clisp.readtable.reads f)]
+;;       (print (hy-repr p))
+;;       (print (eval p))
+;;       )
+;;   ))
+
+(defmacro load/cl [filepath]
+  ;;(print `~filepath)
+  ;; (setv codes (clisp.readtable.loadsexps `~filepath))
+  ;; (print codes)
+  ;; codes
+  ;;(setv codes (for [p (clisp.readtable.loadsexps `~filepath)]  eval p)) )
+  ;; (print (hy-repr codes))  codes
+  ;;`(for [p (clisp.readtable.loadsexps ~filepath)] (eval p globals))
+  `(for [p (clisp.readtable.loadsexps ~filepath)] (eval p))
+  ;;`(progn-helper ~`(clisp.readtable.loadsexps ~filepath))
+  ;;`(clisp.readtable.loadsexps ~filepath)
+  )
 
 

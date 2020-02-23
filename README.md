@@ -2,7 +2,7 @@ hyclb
 ========
 
 [![Build Status](https://img.shields.io/travis/niitsuma/hycl/master.svg?style=flat-square)](https://travis-ci.org/niitsuma/hycl)
-[![Downloads](https://img.shields.io/pypi/dm/hyclb.svg?style=flat-square)](https://pypi.python.org/pypi/hyclb)
+[![Downloads](https://pepy.tech/badge/hyclb)](https://pepy.tech/project/hyclb)
 [![Version](https://img.shields.io/pypi/v/hyclb.svg?style=flat-square)](https://pypi.python.org/pypi/hyclb)
 
 common-lisp-like functions and macros for hylang

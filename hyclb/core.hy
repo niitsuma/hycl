@@ -147,7 +147,7 @@ be nested in `cons`es, e.g.
     ;;     True
     ;;     False))
     )
-
+  (defn list/cl [&rest args] [#*args])
 
   (defn consp [el]  (cons? el))
   (defn atom/cl [x] (not (cons? x)))
@@ -177,8 +177,6 @@ be nested in `cons`es, e.g.
   ;; (defmacro push (el ls)
   ;;   `(setf ~ls (cons ~el ~ls)))
 
-
-
   (defn nreverse [ls]
     (cond
       [(list? x)
@@ -205,6 +203,19 @@ be nested in `cons`es, e.g.
             (nconc (cut x 0 1) (append/cl (cdr x) y)))
         (cons x y)))
 
+  (defn remove/cl [e l &optional test]
+    (cond
+      [(and (none? test) (list? l))
+       (do 
+         (while (in e l)  (.remove l e) )
+         l)]
+      [(coll? l)
+       (do
+         (lif-not test (setv test (fn [x] (= x e))))
+         ((type l) (filter (fn [x] (not (test x)))  l)))
+       ]
+      [True l]))
+       
   (defn mapcan [func ls]
     (if (empty? ls)
         ls
@@ -223,13 +234,13 @@ be nested in `cons`es, e.g.
   (defn assoc/cl  [e dic] (if (in e dic) (get dic e) [])) ;;nil/cl))
   ;; (assoc/cl 'x {'x 10 'y 20})
 
+  (defn svref [v i] (get v i))
 
   (setv nan numpy.nan
         NAN numpy.nan)
 
-  (defn declare/cl   [&rest args]  None)
-  (defn ignorable/cl [&rest args]  None)
-
+  (defn declare/cl   [&rest args]  )
+  (defn ignorable/cl [&rest args]  )
 
   )
 
@@ -280,12 +291,8 @@ be nested in `cons`es, e.g.
 ;; (defun lst (&rest args)
 ;;   (HyExpression args))
 
-
 (defmacro progn [&rest body] 
   `(do ~@body))
-
-
-
 
 (defmacro lambda [lambda-list &rest body]
   `(fn ~(list lambda-list) ~@body))
@@ -474,3 +481,18 @@ be nested in `cons`es, e.g.
 ;;        ~o!arg))
 
 
+(defmacro return-form/cl [exi val] `(return ~val))
+
+(defmacro block/cl [exi &rest body]
+  `(do
+     (defn ~exi [] ~@body)
+     (~exi)
+     )
+  )
+
+;; (defmacro tagbody/cl [loop-tag &rest body]
+  
+
+;;   )
+  
+  

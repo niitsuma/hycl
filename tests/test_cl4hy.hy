@@ -42,6 +42,16 @@
   
   )
 
+(defn test-defuncl []
+  (defun testfn (x y)
+    (setq y (+ 3 y))
+    (+ x y))
+  (eq_
+    (testfn 12 35)
+    50
+    )
+  )
+
 (defn test-quicklisp []
   ;;(setv clisp (Clisp :quicklisp True))
   ;;(clisp.eval_qexpr  '(ql:quickload "alexandria"))
@@ -91,7 +101,5 @@
   (eq_ (test_alet2 49 30)
        1.0)
 
-
 )
-  
 
