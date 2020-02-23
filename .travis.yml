@@ -1,19 +1,13 @@
-matrix:
-  include:
-    - language: python
-      python:
-        - "3.6"
-        - "3.7"
-      install: pip install -r requirements.txt
-      script:
-        - nosetests -v tests
-	
-  include:
-    - language: lisp
-      sudo: required
-     
-      env:
-         matrix:
-           - LISP=abcl
-      install:
-         - curl -L https://github.com/tokenrove/cl-travis/raw/master/install.sh | sh
+language: python
+sudo: required
+python:
+  - "3.6"
+  - "3.7"
+install:
+  - pip install -r requirements.txt
+  - sudo apt-get install -y sbcl
+script:
+  - nosetests -v tests
+
+notifications:
+  email: false

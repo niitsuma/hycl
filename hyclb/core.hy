@@ -1,7 +1,7 @@
 
 
 (require [hy.contrib.loop [loop]])
-;;(require [hy.contrib.walk [let]])
+(require [hy.contrib.walk [let]])
 
 ;; (import  [hyclb.core [*]])
 ;; (require [hyclb.core [*]])
