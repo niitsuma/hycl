@@ -1,21 +1,26 @@
 
-
+(import copy)
 (require [hy.contrib.loop [loop]])
 (require [hy.contrib.walk [let]])
+(import [hy.contrib.walk [postwalk prewalk]])
 
 ;; (import  [hyclb.core [*]])
 ;; (require [hyclb.core [*]])
 
 (import [hy.contrib.hy-repr [hy-repr]])
 
+
 ;; (import [cons [cons :as  cons/py car :as car/py cdr :as cdr/py]]) ;;;can not apply on lisp
 ;; (import [cons.core [ConsPair MaybeCons ConsNull]])
+(import [gasync.core [q-exp-fn?]])
+(defn q-exp-fn0?        [p f] (and (coll? p) (= (first p) f)))
 
 (eval-and-compile 
   (import [collections.abc [Iterable]])
   (import  functools)
   (import numpy)
- 
+  
+  
   ;;(import [hy.models [HyObject HySequence]])
 
   (defclass Nil/cl
@@ -149,6 +154,9 @@ be nested in `cons`es, e.g.
     )
   (defn list/cl [&rest args] [#*args])
 
+  (setv nan numpy.nan
+        NAN numpy.nan)
+
   (defn consp [el]  (cons? el))
   (defn atom/cl [x] (not (cons? x)))
 
@@ -236,11 +244,12 @@ be nested in `cons`es, e.g.
 
   (defn svref [v i] (get v i))
 
-  (setv nan numpy.nan
-        NAN numpy.nan)
 
   (defn declare/cl   [&rest args]  )
   (defn ignorable/cl [&rest args]  )
+
+  (defn error/cl [&optional msg] 
+    (lif msg (raise (ValueError msg)) (raise ValueError)))
 
   )
 
@@ -320,6 +329,30 @@ be nested in `cons`es, e.g.
 ;;           (y 2))
 ;;       (setv y (+ x y))
 ;;       [x y])
+
+;; (defn symbol-macrolet [var-pairs &rest body]
+;;   (setv var-names (list (map first  var-pairs))
+;;         var-vals  (list (map second var-pairs)))
+;;   (+
+;;     `(do)
+;;     (lfor (, x y) (zip var-names var-vals)
+;;           `(defn ~x [] ~y)
+;;           )
+;;     #*body
+;;     ))
+
+;; (hy-repr
+;; (symbol-macrolet
+;;   '(( x ( print  1))
+;;     ( y ( print  2)))
+;;   '(print 10)
+;;   '(print 20)
+;;   ;;'x
+;;   )
+;; )
+
+
+
 
 (defmacro let* [varval &rest body]
   (if (<= (len varval) 1)
@@ -481,7 +514,8 @@ be nested in `cons`es, e.g.
 ;;        ~o!arg))
 
 
-(defmacro return-form/cl [exi val] `(return ~val))
+
+(defmacro return-from/cl [exi val] `(return ~val))
 
 (defmacro block/cl [exi &rest body]
   `(do
@@ -490,9 +524,229 @@ be nested in `cons`es, e.g.
      )
   )
 
-;; (defmacro tagbody/cl [loop-tag &rest body]
+
+(defn qexp-pickup-variables [code]
+  (setv varis [])
+  (defn picker [p]
+    (if (q-exp-fn? p 'setv)
+        (for [(, i e)  (enumerate (cut p 1 None))]
+          (if (= (% i 2) 0)
+              (varis.append e))))
+    p )
+  (prewalk picker code)
+  (list (set varis))
+  )
+
+;; (qexp-pickup-variables '(do
+;;                           (print 3)
+;;                           (setv x 2
+;;                                 y 3)
+;;                           (print u)
+;;                           )
+;;                        )
+
+
+(defn progn-like-qexp-body-mod [p modfn]
+  (cond
+    [(q-exp-fn? p 'do)
+     (+ (cut p None 1)
+        (modfn (cut p 1 None)))]
+    [(or
+       (q-exp-fn? p 'let)
+       (q-exp-fn? p 'let*)
+       (q-exp-fn? p 'let/cl))
+     (+ (cut p None 2)
+        (modfn (cut p 2 None))) ]
+    [True 
+     (do 
+       (setv p2 (modfn `(~p) ))
+       (if (> (len p2) 1)
+           `(do ~@p2)
+           (first p2)))]
+     )
+)
+      
   
+(defn tagbody-qexp-body-change [ps fname labels label_dic varis]
+  (setv startfname (copy.copy fname))
+  (setv scope_labels  [])
+  (lif fname (+= scope_labels  [(copy.copy fname)]))
+  (+=  scope_labels
+       (list
+         (filter
+            (fn [p] (and (symbol? p)(in p labels)))  ps)))
+
+  ;;(print "scope_labels" (hy-repr scope_labels))
+
+  (defn has_go_scope_labels? [p]
+    (setv lbls [])
+    (defn phas? [p]
+      (if (and (q-exp-fn? p 'go) (in (get p 1) scope_labels))
+          (lbls.append (get p 1) ))
+      p)
+    (prewalk phas? p)
+    (list (set lbls))
+    )
+    
+  (setv ret1 [])
+  (setv codedic (dfor k scope_labels [k []] ))
+  (setv buf [])
+  (for [p ps]
+    (if (and (symbol? p)(in p labels))
+        (do
+          (setv fnext p)
+          (lif fname
+               (setv (get codedic fname) buf)
+               (ret1.extend buf)
+               )
+          (setv buf [])
+          (setv fname p))
+        (buf.append p)
+        ;; (buf.append
+        ;;   (progn-like-qexp-body-mod
+        ;;     p
+        ;;     (fn [ps] (tagbody-qexp-body-change ps None labels label_dic))
+        ;;     ))
+        ))
+  (lif fname 
+       (setv (get codedic fname) buf)
+       (ret1.extend buf)
+       )
+  
+  (setv refered (dfor k scope_labels [k False] ))
+  (defn next_label [k]
+    (lif-not
+      k
+      (first scope_labels)
+      (do
+        (setv i (.index scope_labels k))
+        (+= i 1)
+        (if (>= i (len scope_labels))
+            None
+            (get  scope_labels i)))))
+  (defn retcode [code lnext]
+    ;;(print "retcode lnext" lnext (hy-repr code))
+    (setv buf [])
+    (for [p code]
+      (setv lbls (has_go_scope_labels? p))
+      (for [lbl lbls]
+        (if (not (get refered lbl))
+            (do
+              (setv (get refered lbl) True)
+              (buf.append
+                (+
+                  `(defn ~(get label_dic lbl) [~@varis])
+                  (retcode (get codedic lbl) (next_label lbl)))))))
+      (if (q-exp-fn? p 'go)
+          (buf.append `(return (~(get label_dic (get p 1)) ~@varis)   ))
+          (buf.append p)
+          
+          ;; (buf.append
+          ;;   (progn-like-qexp-body-mod
+          ;;     p
+          ;;     (fn [ps] (tagbody-qexp-body-change ps None labels label_dic))
+          ;;     ))
+        ))
+    (lif
+      lnext
+      (do
+        (if (not (get refered lnext))
+            (do
+              (setv (get refered lnext) True)
+              (buf.append
+                (+ 
+                  `(defn ~(get label_dic lnext) [~@varis])
+                  (retcode (get codedic lnext) (next_label lnext))))))
+        (buf.append `(~(get label_dic lnext) ~@varis ) )))
+    buf)
+  
+  (retcode ret1 (next_label None))
+    )
+
+(defn tagbody-qexp [qexp]
+  (setv varis (qexp-pickup-variables qexp))
+  (setv labels [])
+  (defn picker [p] (if (q-exp-fn? p 'go)  (labels.append (get p 1)) )   p )
+  (prewalk picker qexp)
+  ;;(print labels)
+  (setv startfname (gensym 'tagbody))
+  (setv label_dic (dfor l labels [l (gensym l)]))
+  (setv (get label_dic startfname) startfname)
+  ;;(print label_dic) 
+  ;;(tagbody-qexp-body-change (cut qexp 1 None) startfname labels label_dic)
+  (prewalk 
+    (fn [ps]
+      (progn-like-qexp-body-mod
+        ps
+        (fn [ps] (tagbody-qexp-body-change ps None labels label_dic varis))
+        ))
+    `(do ~@qexp))
+  )
+
+(defmacro tagbody [&rest body]
+  (setv startfname (gensym 'tagbody))
+  `(do
+     (defn ~startfname []
+       ~@(cut (tagbody-qexp body)  1 None))
+     (~startfname)))
+
+
+
+
+(defn symbol-macrolet-qexp [code var-names var-vals]
+  ;;(print "var-names" var-names)
+  ;;(print "var-vals" var-vals)
+  (defn letsbst [p]
+    ;(print (hy-repr p))
+    (if (and (symbol? p) (in p var-names))
+        (do
+          ;;(print p)
+          ;;(print (get var-vals (.index var-names p)))
+          (get var-vals (.index var-names p))
+          )
+        p))
+    ;; (q-exp-fn? p 'let)
+    ;; (q-exp-fn? p 'let*)
+    ;; (q-exp-fn? p 'let/cl))
+  (prewalk letsbst code)
+  )
+
+;; (symbol-macrolet-qexp
+;;   '(a b)
+;;   ['a]
+;;   ['pp])
+
+;; (defmacro symbol-macrolet [var-pairs &rest body]
+;;   (setv letdic
+;;         (dfor p var-pairs
+;;               [(first  p)
+;;                (second p)]))
+;;   ;;`(do ~@(symbol-macrolet-qexp body letdic))
 
 ;;   )
-  
-  
+
+(defmacro symbol-macrolet [var-pairs &rest body]
+  (setv var-names (list (map first  var-pairs))
+        var-vals  (list (map second var-pairs)))
+  ;;(print "var-names" var-names)
+  ;;(print "var-vals" var-vals)
+  ;;(setv code (symbol-macrolet-qexp body var-names var-vals ))
+  ;;(print "code "(hy-repr code))
+  `(do ~@(symbol-macrolet-qexp body var-names var-vals ))
+  ;;`(print ~var-names ~var-vals)
+  )
+
+;; (symbol-macrolet ((om::%fail (print 20)))
+;;      om::%fail)
+
+;; (hy-repr
+;;   (macroexpand
+;;     '(symbol-macrolet ((om::%fail (print 20)))
+;;        om::%fail)
+;;   ))
+
+;; (hy-repr
+;;   (macroexpand
+;;     '(symbol-macrolet ((a p))
+;;        a)
+;;   ))

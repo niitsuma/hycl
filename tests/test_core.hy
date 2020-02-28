@@ -317,6 +317,31 @@
     )
   )
 
+(defn test-tagbody []
+  (eq_
+    (tagbody
+      (setv x 1 )
+      lstart
+      (if ( >= x 3)
+          (go lend))
+      (+= x 1)
+      (go lstart)
+      lend
+      x)
+    3)
+  )
+
+
+(defn test-symbol-macrolet []
+  (eq_
+    (symbol-macrolet
+      ((foo (+ 2 3)))
+      (setv x 10)
+      (+= x foo)
+      x)
+    15))
+
+
 (defn test-defun []
   
   (defun testfn (x y)

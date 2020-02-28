@@ -50,6 +50,15 @@
     (testfn 12 35)
     50
     )
+
+  (defun/global testfngl1 (x y)
+    (setq y (+ 3 y))
+    (+ x y))
+  (eq_
+    (testfngl1 12 35)
+    50
+    )
+  
   )
 
 (defn test-quicklisp []

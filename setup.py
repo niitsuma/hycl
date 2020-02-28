@@ -16,8 +16,7 @@ version = next((line.split('=')[1].strip().replace("'", '')
 setup(
     name='hyclb',
     version=version,
-    description='hyclb : common-lisp-like functions and macros for hylang',
-
+    description='hyclb : common-lisp interface and common-lisp-like functions for hylang',
     url='https://github.com/niitsuma/hycl/',
     author='Hirotaka Niitsuma, Riku Togashi',
     author_email='hirotaka.niitsuma@gmail.com',
@@ -28,7 +27,7 @@ setup(
         'Programming Language :: Python :: 3.6',
     ],
     keywords='hy lisp common-lisp',
-    install_requires=['cl4py'], #'hy>=0.15' was removed becase gentoo linux hy package bug
+    install_requires=['cl4py','gasync'], #'hy>=0.15' was removed becase gentoo linux hy package bug
     packages=['hyclb'],
     package_data={'hyclb': ['*.hy','*.lisp'],},
     test_suite='nose.collector',

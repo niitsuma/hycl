@@ -2,6 +2,9 @@
 ;;(import sys)
 (import re)
 (import numpy)
+
+(import reprlib)
+
 (import importlib.machinery)
 (import importlib.util)
 
@@ -15,18 +18,49 @@
 
 ;;(eval-and-compile
 (import  hyclb.core)
+(import  [hyclb.core [q-exp-fn0?]] )
 ;;  )
 (require hyclb.core)
 
 (import cl4py)
-(import [cl4py.reader [*]]
-        [cl4py.data [*]]
+(import [gasync.core [q-exp-fn?]])
+
+;;(import [cl4py.reader [*]]
+        ;;[cl4py.data [*]]
         ;;[cl4py.circularity  [*]]
-        )
+;;        )
 
 ;;(setv hyclb.cl4hy-loaded True)
 ;;(eval-and-compile
-(import cl4py)
+
+(defclass Package [(type reprlib)]
+  (defn __getitem__ [self name]
+    (get self.__dict__ name)))
+
+(defclass Stream [] ;;(LispObject):
+  (defn __init__ [self textstream &optional [debug False]]
+    (setv self.stream  textstream
+          self.old  None
+          self.new  None
+          self.debug  debug))
+  (defn read_char [self  &optional [eof_error True]]
+    (if (= self.new  None)
+        (do 
+          (setv c  (self.stream.read 1))
+          (if (and eof_error (not c)) (raise EOFError) )
+          ;;(if self.debug ( print c,end='')
+          )
+        (setv c  self.new))
+    (setv self.old c
+          self.new None)
+    c)
+  (defn unread_char [self]
+    (if self.old
+        (setv self.new self.old
+              self.old None )
+        (raise (RuntimeError "Duplicate unread_char.")))))
+            
+
 
 (defclass SharpsignSharpsign []
   (defn __init__ [self label]
@@ -85,6 +119,10 @@
   (SharpsignEquals n value))
 (defn sharpsign_sharpsign [r s c n] (SharpsignSharpsign n))
 
+(defn sharpsign_left_parenthesis [r s c n]
+  (setv l  (r.read_delimited_list ")"  s True))
+  (if (not l) [] (list l)))
+
 ;;;;not compat 
 ;; (defn sharpsign_left_parenthesis [r s c n]
 ;;   (setv l  (r.read_delimited_list ")",s, True))
@@ -115,7 +153,9 @@
 (defn sharpsign_colon [r s c n]   ;;gensym var
   (setv data (r.read_aux s))
   ;;(print "sharpsign_colon" data)
-  (hy.models.HySymbol (+ "_G" data)))
+  (hy.models.HySymbol
+    (.lower (+ "_G" data) )
+    ))
 
 (defn sharpsign [r s c]
   (setv digits  "")
@@ -441,25 +481,23 @@
 (clisp.eval_qexpr '(ql:quickload "anaphora"))
 (clisp.eval_qexpr '(rename-package 'anaphora 'ap) )
 ;;(clisp.eval_qexpr '(add-nickname :ap :anaphora))
+
+;; (clisp.eval_qexpr '(ql:quickload "optima"))
+;; (clisp.eval_qexpr '(rename-package 'optima 'om) )
+;; (clisp.eval_qexpr '(rename-package 'optima.core 'omc) )
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
-
-
-(defn ap::ignore-first [&rest args]
-  (if (= (len args)  2)
-      (get args 1)
-      (cut args 1 None)
-  ))
+;; (defn ap::ignore-first [&rest args]
+;;   (if (= (len args)  2)
+;;       (get args 1)
+;;       (cut args 1 None)
+;;   ))
 
 
 (import [hy.contrib.walk [postwalk prewalk]])
 
-;; (setv renames-when-load
-;;       {
-;;        'defmacro 'defmacro/cl
-;;        }
-;;       )
 
 (setv cl-imported-keywords
       ["let*" "progn" "identity"
@@ -469,10 +507,10 @@
 
 (setv element-renames
       {
+       'nan numpy.nan
        'nil 'nil/cl
        'null 'null/cl
        't True
-       'nan numpy.nan
        'if 'if/cl
        'cond 'cond/cl
        'let 'let/cl
@@ -484,12 +522,14 @@
        'apply  'apply/cl
        'atom 'atom/cl
        'multiple-value-bind 'multiple-value-bind/cl
-       'return-form 'return-form/cl
+       'return-from 'return-from/cl
        'block  'block/cl
+       'error  'error/cl       
        'declare   'declare/cl
        'ignorable 'ignorable/cl
        'setq 'setv
        'setf 'setv
+       'defvar 'setv
        }
       )
 (.update element-renames
@@ -501,7 +541,7 @@
                [(hy.models.HySymbol (.upper (str k)))
                 (get element-renames k)]))
 
-(defn q-element-cl-replace [p]
+(defn q-element-replace [p &optional [element-renames element-renames]]
   ;;(print "q-element-cl-replace" p)
   (if (symbol? p)
       (if (in p element-renames)
@@ -511,26 +551,48 @@
           )
       p))
 
-(defn q-exp-cl-rename-deep [p];; &optional [clisp clisp]]
+(defn q-exp-rename-deep [p &optional [element-renames element-renames]];; &optional [clisp clisp]]
   ;;(print "q-exp-cl-rename-deep" (hy-repr p))
-  (postwalk q-element-cl-replace p))
+  (postwalk (fn [e] (q-element-replace e element-renames)) p)
+  )
 
-(defn q-element-clmc-replace [p]
+
+(setv non-cl-macro-expand-symbols
+      [
+       ;;'om:fail 'om::fail
+       'om:%fail 'om::%fail
+       ])
+
+(+= non-cl-macro-expand-symbols
+    (lfor k non-cl-macro-expand-symbols (hy.models.HySymbol (.upper (str k)))))
+
+(defn non-cl-macro-expand-expr? [p &optional [non-cl-macro-expand-symbols non-cl-macro-expand-symbols] ]
+  (for [f non-cl-macro-expand-symbols]
+    ;;(print (hy-repr p))
+    (if (q-exp-fn0? p f)
+        (return True)))
+  False)
+
+
+
+(defn q-element-clmc-replace [p &optional [element-renames element-renames]]
   ;;(print "q-element-clmc-replace"  (hy-repr p))
   (if (not (coll? p))
       p
-      (do
-        (setv p1 `(macroexpand '~p))
-        ;;(print "p1" (hy-repr p1))
-        ;;(setv p2  (hy.models.HyExpression (clisp.eval_qexpr p1)))
-        (setv p2  (clisp.eval_qexpr p1))
-        ;;(print "p2" (hy-repr p2))
-        (lif p2
-             (if (and (coll? p2) (empty? p2))
-              p
-              p2)
-          p)
-        )))
+      (if (non-cl-macro-expand-expr? p)
+          p
+          (do
+            (setv p1 `(macroexpand '~p))
+            ;;(print "p1" (hy-repr p1))
+            ;;(setv p2  (hy.models.HyExpression (clisp.eval_qexpr p1)))
+            (setv p2  (clisp.eval_qexpr p1))
+            ;;(print "p2" (hy-repr p2))
+            (lif p2
+                 (if (and (coll? p2) (empty? p2))
+                     p
+                     p2)
+                 p)
+            ))))
 
 (defn q-exp-clmc-rename-deep [p];; &optional [clisp clisp]]
   (prewalk q-element-clmc-replace p))
@@ -547,10 +609,18 @@
              (do
                (setv ret1 (q-exp-clmc-rename-deep p) )
                ;;(print "ret1" (hy-repr ret1))
-               (setv ret2 (q-exp-cl-rename-deep ret1)) 
+               (setv ret2 (q-exp-rename-deep ret1)) 
                ;;(print "ret2" (hy-repr ret2))
                ret2
                ))))
+
+
+(defmacro defun/global [name arg &rest code]
+  `(do
+     (global ~name)
+     (defun ~name ~arg ~@code)
+     )
+  )
 
 
 ;; (defmacro defmacro/cl [&rest args]
@@ -567,15 +637,32 @@
 ;;       )
 ;;   ))
 
+(setv renames-when-load
+      {
+       ;;'defmacro 'defmacro/cl
+       'defun 'defun/global
+       }
+      )
+
+
 (defmacro load/cl [filepath]
-  ;;(print `~filepath)
+  ;;(print "load/cl" filepath)
   ;; (setv codes (clisp.readtable.loadsexps `~filepath))
   ;; (print codes)
   ;; codes
   ;;(setv codes (for [p (clisp.readtable.loadsexps `~filepath)]  eval p)) )
   ;; (print (hy-repr codes))  codes
-  ;;`(for [p (clisp.readtable.loadsexps ~filepath)] (eval p globals))
-  `(for [p (clisp.readtable.loadsexps ~filepath)] (eval p))
+  
+  ;;`(for [p (clisp.readtable.loadsexps ~filepath)] (eval p))
+  
+  `(for [p (clisp.readtable.loadsexps ~filepath)]
+     (eval
+       (do
+         (setv qp (q-exp-rename-deep p renames-when-load) )
+         (print (hy-repr qp))
+         qp
+           )  ))
+
   ;;`(progn-helper ~`(clisp.readtable.loadsexps ~filepath))
   ;;`(clisp.readtable.loadsexps ~filepath)
   )
