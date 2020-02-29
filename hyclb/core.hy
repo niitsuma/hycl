@@ -1,14 +1,15 @@
 
+(import re)
 (import copy)
 (require [hy.contrib.loop [loop]])
 (require [hy.contrib.walk [let]])
-(import [hy.contrib.walk [postwalk prewalk]])
+(import [hy.contrib.walk [postwalk prewalk walk]])
 
 ;; (import  [hyclb.core [*]])
 ;; (require [hyclb.core [*]])
 
 (import [hy.contrib.hy-repr [hy-repr]])
-
+(import cl4py)
 
 ;; (import [cons [cons :as  cons/py car :as car/py cdr :as cdr/py]]) ;;;can not apply on lisp
 ;; (import [cons.core [ConsPair MaybeCons ConsNull]])
@@ -306,24 +307,29 @@ be nested in `cons`es, e.g.
 (defmacro lambda [lambda-list &rest body]
   `(fn ~(list lambda-list) ~@body))
 
-(defmacro let/cl [var-pairs &rest body]
-  (setv var-names (list (map first  var-pairs))
-        var-vals  (list (map second var-pairs)))
-  `((fn [~@var-names] ~@body) ~@var-vals))
-
-
 ;; (defmacro let/cl [var-pairs &rest body]
 ;;   (setv var-names (list (map first  var-pairs))
 ;;         var-vals  (list (map second var-pairs)))
-;;   ;;`(let [ ~@(+ #*(lfor (, x y) (zip var-names var-vals) [x y]))]
-;;   ;; `(let [ ~@(mapcan (fn [xy] xy)  (list (zip var-names var-vals))) ]
-;;   ;;    ;;(+ #*(lfor (, x y) (zip var-names var-vals) [x y]))
-;;   ;;    ~@body
-;;   ;;    ))
+;;   `((fn [~@var-names] ~@body) ~@var-vals))
 
-;; (setv var-names '(a b c)
-;;       var-vals   [1 2 3])
-;; (mapcan (fn [xy] xy)  (list (zip var-names var-vals)))
+(defmacro let/cl [var-pairs &rest body]
+  (setv var-names (list (map first  var-pairs))
+        var-vals  (list (map second var-pairs)))
+  ;;`(let [ ~@(+ #*(lfor (, x y) (zip var-names var-vals) [x y]))]
+  ;;`(let [ ~@(mapcan (fn [xy] xy)  (list (zip var-names var-vals))) ]
+  ;;`(let [~@(+ #*(lfor (, x y) (zip var-names var-vals) [x y]))]
+  `(let [~@(mapcan (fn [xy] `(~@(list xy))) (list (zip var-names var-vals))) ]
+     ~@body
+      ))
+
+;; (setv var-names (list '(a b c))
+;;       var-vals  (list '(1 2 3)))
+
+
+;; (list (zip var-names var-vals))
+;; ;;(+ #*(lfor (, x y) (zip var-names var-vals) [x y]))
+;; (mapcan (fn [xy] `(~@(list xy))) (list (zip var-names var-vals)))
+
 
 ;; (let/cl ((x 1)
 ;;           (y 2))
@@ -548,7 +554,7 @@ be nested in `cons`es, e.g.
 
 (defn progn-like-qexp-body-mod [p modfn]
   (cond
-    [(q-exp-fn? p 'do)
+    [(or (q-exp-fn? p 'do)(q-exp-fn? p 'progn))
      (+ (cut p None 1)
         (modfn (cut p 1 None)))]
     [(or
@@ -692,49 +698,132 @@ be nested in `cons`es, e.g.
 
 
 
+(defn qexp-var-pairs-hy2cl [var-pairs]
+  (if (symbol? (first var-pairs))
+      (do
+        (setv ret '()
+              buf '()
+              )
+        (for [(, k p) (enumerate var-pairs)]
+          ;;(print k p (hy-repr (cut var-pairs k (+ 2 k) )))
+          (if (even? k)
+              (+= ret `(~(cut var-pairs k (+ 2 k) )))))
+        ret)
+      var-pairs))
 
-(defn symbol-macrolet-qexp [code var-names var-vals]
-  ;;(print "var-names" var-names)
-  ;;(print "var-vals" var-vals)
-  (defn letsbst [p]
-    ;(print (hy-repr p))
-    (if (and (symbol? p) (in p var-names))
-        (do
-          ;;(print p)
-          ;;(print (get var-vals (.index var-names p)))
-          (get var-vals (.index var-names p))
-          )
-        p))
-    ;; (q-exp-fn? p 'let)
-    ;; (q-exp-fn? p 'let*)
-    ;; (q-exp-fn? p 'let/cl))
-  (prewalk letsbst code)
+(defn qexp-cl-var-pairs-colon-mod [var-pairs]
+  (setv var-vals  (list (map second var-pairs))
+        var-names (list (map first  var-pairs))
+        var-pairs2 '())
+  (for [(, k v) (enumerate var-names)]
+    (setv token (str v)
+          m (re.fullmatch cl4py.reader.symbol_regex token)
+          package  (m.group 1)
+          delimiter (m.group 2)
+          name  (m.group 3))
+    ;;(print "symbol=" token package delimiter name )
+    (if (= delimiter ":")
+        (do 
+          (setv v_new (hy.models.HySymbol  (+ package "::" name)))
+          (if (not (in v_new var-vals))
+              (+= var-pairs2 `((~v_new ~(get var-vals k))))))
+        (if (= delimiter "::")
+            (do 
+              (setv v_new (hy.models.HySymbol (+ package ":" name)))
+              (if (not (in v_new var-vals))
+                  (+= var-pairs2 `((~v_new ~(get var-vals k))))))))
+    )
+  ;;(print (hy-repr var-pairs2))
+  (+ var-pairs var-pairs2))
+
+;; (hy-repr
+;; (qexp-cl-var-pairs-colon-mod
+;;   '((foo (+ 2 3)))
+;;   ))
+
+(defn symbol-macrolet-cl-qexp-inner [p vpar
+                                     &optional cont-walk-base
+                                     ]
+  (print "mlet-vpars" (hy-repr vpar))
+  (if (or
+        (q-exp-fn? p 'let)
+        (q-exp-fn? p 'let*)
+        (q-exp-fn? p 'let/cl)
+        )
+      (do
+        (setv vpar-ignore
+              (cond 
+                [(q-exp-fn? p 'let) (qexp-cl-var-pairs-colon-mod (get p 1))]
+                [(or (q-exp-fn? p 'let*) (q-exp-fn? p 'let/cl))  (get p 1)]
+                [True '()]
+                ))
+        (if (not (empty? vpar-ignore))
+            (do 
+              (setv vpar-ignore (qexp-cl-var-pairs-colon-mod vpar-ignore)
+                    vnam-ignore (list (map first vpar-ignore))
+                    vpar `(~@(list (filter (fn [x] (not (in (first x) vnam-ignore))) vpar)))))))
+      (if (q-exp-fn? p 'symbol-macrolet)
+          (do
+            (setv vpar-add (get p 1))
+            (if (not (empty? vpar-add))
+                (do 
+                  (setv vpar-add (qexp-cl-var-pairs-colon-mod vpar-add)
+                        vnam-add (list (map first  vpar-add))
+                        vpar-mod `(~@(list (filter (fn [x] (in (first x) vnam-add)) vpar)))
+                        vnam-mod (list (map first  vpar-mod))
+                        vpar-mod `(~@(list (filter (fn [x] (in (first x) vnam-mod)) vpar-add)))
+                        vpar-res `(~@(list (filter (fn [x] (not (in (first x) vnam-mod))) vpar)))
+                        vpar-add `(~@(list (filter (fn [x] (not (in (first x) vnam-mod))) vpar-add)))
+                        vpar (+ vpar-res vpar-mod vpar-add )
+                      ))))))
+      
+  (setv vnam  (list (map first  vpar))
+        vval  (list (map second vpar)))
+  (for [v vnam] (if (= `(~v) p) (return p)))
+  (if (symbol? p)
+      (if (in p vnam) (get vval (.index vnam p)) p)
+      (walk
+        ;;(fn [p1] (cont-walk-base  p1 vpar))
+        ;;(fn [p1] (symbol-macrolet-cl-qexp-inner p1 vpar))
+        (fn [p1] 
+          (lif cont-walk-base
+               (cont-walk-base p1 vpar)
+               (symbol-macrolet-cl-qexp-inner p1 vpar)))
+        identity p)))
+
+
+(defn symbol-macrolet-cl-qexp [code]
+  (walk 
+    (fn [p1] (symbol-macrolet-cl-qexp-inner
+               p1
+               (qexp-cl-var-pairs-colon-mod (get code 1))
+      ))
+    identity
+    (cut code 2 None)
+     ))
+
+
+(defmacro symbol-macrolet [&rest body]
+  `(do
+     ~@(symbol-macrolet-cl-qexp
+         `(symbol-macrolet ~@body )))
   )
 
-;; (symbol-macrolet-qexp
-;;   '(a b)
-;;   ['a]
-;;   ['pp])
+;; (hy-repr
+;; (symbol-macrolet-cl-qexp
+;;   '(symbol-macrolet
+;;       ((foo (+ 2 3)))
+;;       (setv x 10)
+;;       (+= x foo)
+;;       x)
+;; ))
 
-;; (defmacro symbol-macrolet [var-pairs &rest body]
-;;   (setv letdic
-;;         (dfor p var-pairs
-;;               [(first  p)
-;;                (second p)]))
-;;   ;;`(do ~@(symbol-macrolet-qexp body letdic))
+;; (symbol-macrolet
+;;       ((foo (+ 2 3)))
+;;       (setv x 10)
+;;       (+= x foo)
+;;       x)
 
-;;   )
-
-(defmacro symbol-macrolet [var-pairs &rest body]
-  (setv var-names (list (map first  var-pairs))
-        var-vals  (list (map second var-pairs)))
-  ;;(print "var-names" var-names)
-  ;;(print "var-vals" var-vals)
-  ;;(setv code (symbol-macrolet-qexp body var-names var-vals ))
-  ;;(print "code "(hy-repr code))
-  `(do ~@(symbol-macrolet-qexp body var-names var-vals ))
-  ;;`(print ~var-names ~var-vals)
-  )
 
 ;; (symbol-macrolet ((om::%fail (print 20)))
 ;;      om::%fail)

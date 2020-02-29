@@ -339,7 +339,30 @@
       (setv x 10)
       (+= x foo)
       x)
-    15))
+    15)
+  
+  (eq_
+    (symbol-macrolet
+      ((foo (+ 2 3)))
+      (setv x 10)
+      (let* ((foo 7))
+        (+= x foo))
+      (+= x foo)
+      x)
+    22)
+
+  (eq_
+    (symbol-macrolet
+      ((foo (+ 2 3)))
+      (setv x 10)
+      (symbol-macrolet ((foo 7))
+        (+= x foo))
+      (+= x foo)
+      x)
+    22)
+
+  
+  )
 
 
 (defn test-defun []
