@@ -112,3 +112,14 @@
 
 )
 
+(defn test-optima []
+  (defun testfn []
+    (om:match (list 1 2)
+              ((list _) 1)
+              ((list _ _) 2)
+              ((list _ _ _) 3)
+              ) )
+  (eq_
+    (testfn)
+    2)
+  )

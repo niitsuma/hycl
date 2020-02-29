@@ -153,7 +153,8 @@ be nested in `cons`es, e.g.
     ;;     True
     ;;     False))
     )
-  (defn list/cl [&rest args] [#*args])
+  (defn list/cl   [&rest args] `(~@args))
+  (defn vector/cl [&rest args] (list args))
 
   (setv nan numpy.nan
         NAN numpy.nan)
@@ -188,13 +189,14 @@ be nested in `cons`es, e.g.
 
   (defn nreverse [ls]
     (cond
-      [(list? x)
+      [(list? ls)
        (do (.reverse ls)
            ls)]
       [True (do
+              (setv ls-type (type ls))
               (setv tmp (list ls))
               (.reverse tmp)
-              (type ls )tmp)
+              (ls-type tmp))
        ]))
 
   (defn nconc [x y]
@@ -224,7 +226,7 @@ be nested in `cons`es, e.g.
          ((type l) (filter (fn [x] (not (test x)))  l)))
        ]
       [True l]))
-       
+  
   (defn mapcan [func ls]
     (if (empty? ls)
         ls
@@ -320,7 +322,7 @@ be nested in `cons`es, e.g.
   ;;`(let [~@(+ #*(lfor (, x y) (zip var-names var-vals) [x y]))]
   `(let [~@(mapcan (fn [xy] `(~@(list xy))) (list (zip var-names var-vals))) ]
      ~@body
-      ))
+     ))
 
 ;; (setv var-names (list '(a b c))
 ;;       var-vals  (list '(1 2 3)))
@@ -429,7 +431,7 @@ be nested in `cons`es, e.g.
         nil
         (let [res (cond
                     [(atom/cl pat) pat]
-                                ;[(eq (car pat) '&rest) (cadr pat)]
+                    ;;[(eq (car pat) '&rest) (cadr pat)]
                     [True nil])]
           (if/cl res
                  `((~res (subseq ~seq 0 ~n)))
@@ -521,9 +523,9 @@ be nested in `cons`es, e.g.
 
 
 
-(defmacro return-from/cl [exi val] `(return ~val))
+(defmacro return-from [exi val] `(return ~val))
 
-(defmacro block/cl [exi &rest body]
+(defmacro block [exi &rest body]
   `(do
      (defn ~exi [] ~@body)
      (~exi)
@@ -554,13 +556,20 @@ be nested in `cons`es, e.g.
 
 (defn progn-like-qexp-body-mod [p modfn]
   (cond
-    [(or (q-exp-fn? p 'do)(q-exp-fn? p 'progn))
+    [(or
+       (q-exp-fn? p 'do)
+       (q-exp-fn? p 'progn)
+       (q-exp-fn? p 'block)
+       (q-exp-fn? p 'tagbody)
+       )
      (+ (cut p None 1)
         (modfn (cut p 1 None)))]
     [(or
        (q-exp-fn? p 'let)
        (q-exp-fn? p 'let*)
-       (q-exp-fn? p 'let/cl))
+       (q-exp-fn? p 'let/cl)
+       (q-exp-fn? p 'symbol-macrolet)
+       )
      (+ (cut p None 2)
         (modfn (cut p 2 None))) ]
     [True 
@@ -569,10 +578,10 @@ be nested in `cons`es, e.g.
        (if (> (len p2) 1)
            `(do ~@p2)
            (first p2)))]
-     )
-)
-      
-  
+    )
+  )
+
+
 (defn tagbody-qexp-body-change [ps fname labels label_dic varis]
   (setv startfname (copy.copy fname))
   (setv scope_labels  [])
@@ -580,7 +589,7 @@ be nested in `cons`es, e.g.
   (+=  scope_labels
        (list
          (filter
-            (fn [p] (and (symbol? p)(in p labels)))  ps)))
+           (fn [p] (and (symbol? p)(in p labels)))  ps)))
 
   ;;(print "scope_labels" (hy-repr scope_labels))
 
@@ -593,7 +602,7 @@ be nested in `cons`es, e.g.
     (prewalk phas? p)
     (list (set lbls))
     )
-    
+  
   (setv ret1 [])
   (setv codedic (dfor k scope_labels [k []] ))
   (setv buf [])
@@ -652,7 +661,7 @@ be nested in `cons`es, e.g.
           ;;     p
           ;;     (fn [ps] (tagbody-qexp-body-change ps None labels label_dic))
           ;;     ))
-        ))
+          ))
     (lif
       lnext
       (do
@@ -667,7 +676,7 @@ be nested in `cons`es, e.g.
     buf)
   
   (retcode ret1 (next_label None))
-    )
+  )
 
 (defn tagbody-qexp [qexp]
   (setv varis (qexp-pickup-variables qexp))
@@ -742,9 +751,11 @@ be nested in `cons`es, e.g.
 ;;   ))
 
 (defn symbol-macrolet-cl-qexp-inner [p vpar
-                                     &optional cont-walk-base
+                                     &optional
+                                     else-task
+                                     cont-walk-base
                                      ]
-  (print "mlet-vpars" (hy-repr vpar))
+  ;;(print "mlet-vpars" (hy-repr vpar))
   (if (or
         (q-exp-fn? p 'let)
         (q-exp-fn? p 'let*)
@@ -775,32 +786,70 @@ be nested in `cons`es, e.g.
                         vpar-res `(~@(list (filter (fn [x] (not (in (first x) vnam-mod))) vpar)))
                         vpar-add `(~@(list (filter (fn [x] (not (in (first x) vnam-mod))) vpar-add)))
                         vpar (+ vpar-res vpar-mod vpar-add )
-                      ))))))
-      
+                        ))))          )      )
   (setv vnam  (list (map first  vpar))
         vval  (list (map second vpar)))
   (for [v vnam] (if (= `(~v) p) (return p)))
-  (if (symbol? p)
-      (if (in p vnam) (get vval (.index vnam p)) p)
-      (walk
-        ;;(fn [p1] (cont-walk-base  p1 vpar))
-        ;;(fn [p1] (symbol-macrolet-cl-qexp-inner p1 vpar))
-        (fn [p1] 
-          (lif cont-walk-base
-               (cont-walk-base p1 vpar)
-               (symbol-macrolet-cl-qexp-inner p1 vpar)))
-        identity p)))
+  (if
+    (and (symbol? p) (in p vnam) ) (get vval (.index vnam p))
+    (if
+      (not (coll? p))
+      p
+      (do
+        (if (q-exp-fn? p 'symbol-macrolet)
+            (do 
+              (setv pa (cut p 0 2)
+                    pb (cut p 2 None))
+              ;; (print "pa" (hy-repr pa))
+              ;; (print "pb" (hy-repr pb))
+              (lif else-task (setv pb (else-task pb vpar else-task cont-walk-base)))
+              (+
+                pa
+                (walk
+                  (fn [p1]
+                    (lif cont-walk-base
+                         (cont-walk-base                p1 vpar else-task cont-walk-base)
+                         (symbol-macrolet-cl-qexp-inner p1 vpar else-task cont-walk-base)))
+                  identity pb)))
+            (do
+              (lif else-task (setv p (else-task p vpar else-task cont-walk-base)))
+              (walk
+                (fn [p1]
+                  (lif cont-walk-base
+                       (cont-walk-base                p1 vpar else-task cont-walk-base)
+                       (symbol-macrolet-cl-qexp-inner p1 vpar else-task cont-walk-base)))
+                identity p)))))))
 
 
-(defn symbol-macrolet-cl-qexp [code]
+  ;; (hy-repr
+  ;;   (+
+  ;;   (cut 
+  ;;     '(sym-mac ((a b)(c d)) 1 2 3 4)
+  ;;     0 2)
+  ;;   (cut 
+  ;;     '(sym-mac ((a b)(c d)) 1 2 3 4)
+  ;;     2 None))
+  ;;   )
+
+  ;; (hy-repr
+  ;;   (+ '()
+  ;;      '(1)))
+  
+(defn symbol-macrolet-cl-qexp [code
+                               &optional
+                               else-task
+                               cont-walk-base
+                               ]
   (walk 
     (fn [p1] (symbol-macrolet-cl-qexp-inner
                p1
                (qexp-cl-var-pairs-colon-mod (get code 1))
-      ))
+               else-task
+               cont-walk-base
+               ))
     identity
     (cut code 2 None)
-     ))
+    ))
 
 
 (defmacro symbol-macrolet [&rest body]

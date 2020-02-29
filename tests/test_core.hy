@@ -93,6 +93,23 @@
     (, 'b))
   )
 
+(defn test-core-misc []
+  (eq_
+    (list/cl 1 2 3 4)
+    '(1 2 3 4))
+  (eq_
+    (vector/cl 1 2 3 4)
+    [1 2 3 4])
+  
+  (eq_
+    (nreverse [1 2 3])
+    [3 2 1])
+  (eq_
+    (nreverse '(1 2 3))
+    '(3 2 1))
+  
+  )
+
 (defn test-nconc []
   (assert-all-equal
     (nconc '(a b) '(c d))

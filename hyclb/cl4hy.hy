@@ -1,5 +1,5 @@
 
-;;(import sys)
+(import sys)
 (import re)
 (import numpy)
 
@@ -19,9 +19,17 @@
 
 ;;(eval-and-compile
 (import  hyclb.core)
+(import [hyclb.core
+         [qexp-cl-var-pairs-colon-mod
+          symbol-macrolet-cl-qexp
+          symbol-macrolet-cl-qexp-inner          
+          ]])
+
+
 (import  [hyclb.core [q-exp-fn0?]] )
 ;;  )
 (require hyclb.core)
+
 
 (import cl4py)
 (import [gasync.core [q-exp-fn?]])
@@ -490,6 +498,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
+
 ;; (defn ap::ignore-first [&rest args]
 ;;   (if (= (len args)  2)
 ;;       (get args 1)
@@ -497,7 +506,55 @@
 ;;   ))
 
 
-(import [hy.contrib.walk [postwalk prewalk]])
+(import [hy.contrib.walk [postwalk prewalk walk]])
+
+;; (clisp.eval_qexpr
+;;   '(defmacro expandmacro-with-env (form &environment env)
+;;      (multiple-value-bind (expansion expanded-p)
+;;                           (macroexpand form env)
+;;                           `(values ',expansion ',expanded-p)))
+;;   )
+;; (clisp.eval_qexpr
+;;   '(defmacro expandmacro1-with-env (form &environment env)
+;;      (multiple-value-bind (expansion expanded-p)
+;;                           (macroexpand-1 form env)
+;;                           `(values ',expansion ',expanded-p)))
+;;   )
+
+;; (defn qexp-macroexpand-env-sents
+;;   [p &optional  [env-sents []] ]
+;;   (setv p1 `(expandmacro-with-env ~p))
+;;   (for [s (nreverse env-sents)]
+;;     (setv p1 (+ s `(~p1)))
+;;     )
+;;   p1
+;;   )
+
+;; (hy-repr
+;; (qexp-macroexpand-env-sents
+;;   '(print 12)
+;;   '(
+;;     (let  ((a 12)))
+;;      (let* ((b 22)))
+;;      ))
+;; )
+;; "'(let ((a 12)) (let* ((b 22)) (expandmacro-with-env (print 12))))"
+
+
+;; (defn qexp-macroexpand-1-with-env
+;;   [p &optional
+;;    [symbol-macrolet-var-paris []]
+;;    [macrolet-var-paris []]
+;;    ;;[flet-var-paris []]
+;;    ]
+;;   (setv p1 `(expandmacro-with-env ~p))
+;;   (if (not (empty? macrolet-var-paris))
+;;       (setv p1 `(macrolet ~macrolet-var-paris ~p1)))
+;;   (if (not (empty? symbol-macrolet-var-paris))
+;;       (setv p1 `(symbol-macrolet-var-paris ~symbol-macrolet-var-paris ~p1)))
+;;   (setv p2 (clisp.eval_qexpr p1))
+;;   p2
+;;   )
 
 
 (setv cl-imported-keywords
@@ -515,7 +572,8 @@
        'if 'if/cl
        'cond 'cond/cl
        'let 'let/cl
-       'list 'list/cl
+       'list   'list/cl 
+       'vector 'vector/cl
        'first 'car
        'rest  'cdr
        'remove 'remove/cl
@@ -523,8 +581,8 @@
        'apply  'apply/cl
        'atom 'atom/cl
        'multiple-value-bind 'multiple-value-bind/cl
-       'return-from 'return-from/cl
-       'block  'block/cl
+       ;;'return-from 'return-from/cl
+       ;;'block  'block/cl
        'error  'error/cl       
        'declare   'declare/cl
        'ignorable 'ignorable/cl
@@ -557,14 +615,14 @@
   (postwalk (fn [e] (q-element-replace e element-renames)) p)
   )
 
-(setv non-cl-macro-expand-symbols [])
-;; (setv non-cl-macro-expand-symbols
-;;       [
-;;        ;;'om:fail 'om::fail
-;;        'om:%fail 'om::%fail
-;;        ])
-;; (+= non-cl-macro-expand-symbols
-;;     (lfor k non-cl-macro-expand-symbols (hy.models.HySymbol (.upper (str k)))))
+;;(setv non-cl-macro-expand-symbols [])
+(setv non-cl-macro-expand-symbols
+      [
+       ;;'om:fail 'om::fail
+       ;;'om:%fail 'om::%fail 'om:fail
+       ])
+(+= non-cl-macro-expand-symbols
+    (lfor k non-cl-macro-expand-symbols (hy.models.HySymbol (.upper (str k)))))
 
 
 (defn non-cl-macro-expand-expr? [p &optional [non-cl-macro-expand-symbols non-cl-macro-expand-symbols] ]
@@ -574,6 +632,19 @@
         (return True)))
   False)
 
+
+(defn qexp-macroexpand-1 [p &optional [non-cl-macro-expand-symbols non-cl-macro-expand-symbols] ]
+  (if (non-cl-macro-expand-expr? p non-cl-macro-expand-symbols)
+      p
+      (do
+        (setv p3 (clisp.eval_qexpr `(macroexpand-1 '~p)))
+        ;; (print "mex1fn")
+        ;; (print (hy-repr non-cl-macro-expand-symbols))
+        ;; (print (hy-repr p))
+        ;; (print (hy-repr p3))
+        p3
+        )))
+  
 (import copy)
 
 ;; (defn q-exp-symbol-macrolet [code]
@@ -615,20 +686,96 @@
                      p)
                 ))))
 
-;; (defn q-exp-clmc-rename-deep [p &optional [non-cl-macro-expand-symbols non-cl-macro-expand-symbols] ]
-;;   (setv smaclet-vpar '())
 
-;;   (defn non-cl-macro-expand-expr? [p]
-;;     (for [f non-cl-macro-expand-symbols] (if (q-exp-fn0? p f) (return True))) False)
-;;   (defn has-symbol-macrolet? [code] 
-;;     (setv flag False)
-;;     (postwalk (fn [p] (if (q-exp-fn? p 'symbol-macrolet) (do (setv flag True) p) p)) code) flag)
+(defn q-exp-clmc-rename-deep2 [p &optional [non-cl-macro-expand-symbols non-cl-macro-expand-symbols] ]
+  (defn inner [p smaclet-vpar]
+    (if
+      (q-exp-fn? p 'symbol-macrolet)
+      (do
+        ;;(print "smlet-start " (hy-repr p))
+        (setv p-start (copy.copy p))
+        (setv change-flag True)
+        (while change-flag
+          (setv p-pre (copy.copy p))
+          (setv p
+                (+
+                  (cut p-start 0 2)
+                  (symbol-macrolet-cl-qexp
+                    p
+                    (fn [p1 vpar1 else-task1 cont1]
+                      ;;(print "vpar1" (hy-repr vpar1))
+                      (setv p2 (qexp-macroexpand-1 p1 vpar1))
+                      ;;(print "mex1" (hy-repr p2))
+                      p2
+                      ))))
+          ;;(print "mlet1" (hy-repr p))
+          (setv change-flag (not (= p-pre p)))
+          ;;(print "mlet1-flag" change-flag)
+          )
+        (setv p `(progn ~@(cut p 2 None)))
+        ))
+    ;;(sys.exit 0)
+    (do
+      (setv p1 `(macroexpand '~p))
+      ;;(print "p1" (hy-repr p1))
+      (setv p2  (clisp.eval_qexpr p1))
+      ;;(print "p2" (hy-repr p2))
+      (lif p2
+           (if (and (coll? p2) (empty? p2 ))
+               (walk (fn [p] (inner p smaclet-vpar)) identity p)
+               (walk (fn [p2] (inner p2 smaclet-vpar)) identity p2)
+               )
+           (walk (fn [p] (inner p smaclet-vpar)) identity p)
+           ))
+    )
+  (walk 
+    (fn [p] (inner p non-cl-macro-expand-symbols))
+    identity
+    (inner p non-cl-macro-expand-symbols) 
+    )
+  )
+
+  ;;   (setv smaclet-vpar '())
+
+;;   ;; (defn non-cl-macro-expand-expr? [p]
+;;   ;;   (for [f non-cl-macro-expand-symbols] (if (q-exp-fn0? p f) (return True))) False)
+;;   ;; (defn has-symbol-macrolet? [code] 
+;;   ;;   (setv flag False)
+;;   ;;   (postwalk (fn [p] (if (q-exp-fn? p 'symbol-macrolet) (do (setv flag True) p) p)) code) flag)
+
+;;   (defn else-task [p vpar else-task1 cont]
+;;     ;;(symbol-macrolet-cl-qexp-inner
+;;     (qexp-macroexpand-1 p vpar)
+;;     ;;p vpar cont))
+;;     )
   
-;;   (defn inner [p smaclet-vpar]
+
+;;   (defn inner1 [p vpar else-task1 cont]
+;;     (symbol-macrolet-cl-qexp-inne
+;;       (qexp-macroexpand-1 p vpar)
+;;       p vpar cont))    
+  
+;;   (defn inner [p smaclet-vpar cont]
 ;;     ;; (if (not (has-symbol-macrolet? p))
 ;;     ;;     (prewalk (fn [p1] (clisp.eval_qexpr `(macroexpand '~p1))) p)
     
 ;;     (if (q-exp-fn? p 'symbol-macrolet)
+;;         (walk 
+;;           (fn [p1] (symbol-macrolet-cl-qexp-inner
+;;                      p1
+;;                      (qexp-cl-var-pairs-colon-mod (get code 1))
+;;                      ))
+;;           identity
+;;           (cut p 2 None)
+;;           inner
+;;           (fn [p vpar else-task1 cont] (qexp-macroexpand-1 p vpar))
+ 
+;;           ;; (fn [p2 vpar ]
+;;           ;;   (qexp-macroexpand-1 p2 
+                                
+;;           ))
+
+        
 ;;         (+= smaclet-vpar
 ;;             (hyclb.core.qexp-cl-var-pairs-colon-mod (get code 1))))
 ;;     (if (empty? smaclet-vpar
@@ -650,8 +797,6 @@
 ;;             (walk
 ;;               (fn [p1] (clisp.eval_qexpr `(macroexpand-1 '~p1)))
     
-
-
 ;;   )
 
 
@@ -669,7 +814,8 @@
   `(defn ~name [~@arg]
      ~@(lfor p code
              (do
-               (setv ret1 (q-exp-clmc-rename-deep p) )
+               ;;(setv ret1 (q-exp-clmc-rename-deep  p) )
+               (setv ret1 (q-exp-clmc-rename-deep2 p) )               
                ;;(print "ret1" (hy-repr ret1))
                (setv ret2 (q-exp-rename-deep ret1)) 
                ;;(print "ret2" (hy-repr ret2))

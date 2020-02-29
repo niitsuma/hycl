@@ -51,13 +51,13 @@ Example
 (clisp.eval_qexpr '(+ 2 5))
 ==> 7
 
-(clisp.eval_qexpr  '(ql:quickload "alexandria"))
+;;(clisp.eval_qexpr  '(ql:quickload "alexandria")) ;;alexandria pre-loaded inside hyclb
 (clisp.eval_str  "(alexandria:destructuring-case '(:x 0 1 2)   ((:x x y z) (list x y z))  ((t &rest rest) :else))")
 ==>'(0 1 2)
 
 
-(clisp.eval_qexpr '(ql:quickload "anaphora"))
-(clisp.eval_qexpr '(rename-package 'anaphora 'ap) )
+;(clisp.eval_qexpr '(ql:quickload "anaphora"))       ;;anaphora pre-loaded inside hyclb
+;(clisp.eval_qexpr '(rename-package 'anaphora 'ap) ) ;;anaphora renamed inside hyclb
 
 (import numpy) 
 (defun test_alet2 (x y)
@@ -70,6 +70,19 @@ Example
   
 (test_alet2 49 30)
 ==> 1.0	
+
+;(clisp.eval_qexpr '(ql:quickload "optima"))                ;;optima  pre-loaded inside hyclb
+;(clisp.eval_qexpr '(rename-package 'optima 'om) )          ;;optima  renamed inside hyclb
+;(clisp.eval_qexpr '(rename-package 'optima.core 'omc) )    ;;optima.core  renamed inside hyclb to avoid using  python namespace "optima.*"
+(defun testfn []
+    (om:match (list 1 2)
+              ((list _) 1)
+              ((list _ _) 2)
+              ((list _ _ _) 3)
+              ) )
+
+(testfn)
+==>  2
 
 ```
 
