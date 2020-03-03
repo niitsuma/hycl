@@ -21,8 +21,11 @@
 (import  hyclb.core)
 (import [hyclb.core
          [qexp-cl-var-pairs-colon-mod
+          qexp-symbol-macrolet-apply-deep
           symbol-macrolet-cl-qexp
-          symbol-macrolet-cl-qexp-inner          
+          ;;symbol-macrolet-cl-qexp-inner
+          qexp-var-pairs-add
+          qexp-var-pairs-sub          
           ]])
 
 
@@ -68,20 +71,38 @@
         (setv self.new self.old
               self.old None )
         (raise (RuntimeError "Duplicate unread_char.")))))
-            
+
+;; (defclass LispWrapper [] ;;(LispObject):
+;;   (defn __init__ [self lisp handle]
+;;     (setv self.lisp  lisp
+;;           self.handle= handle))
+;;   (defn __del__ [self]
+;;     (try
+;;       (self.lisp.eval_str ("'#{}!".format self.handle))
+;;       (except [])))
+;;   (defn __call__ [self &rest args &kwargs kwargs]
+;;     (setv restAndKeys  (lfor arg args `(~arg)))
+;;     (for [(, key value) (kwargs.items)]
+;;       (restAndKeys.append (keyword key))
+;;       (restAndKeys.append `( ~value)))
+;;     (self.lisp.eval_str
+;;       ;;(List(Symbol('FUNCALL', 'CL'), Quote(self), *restAndKeys))
+;;       "(funcall  Quote(self), *restAndKeys))"
+;;       )
+;;     ))
 
 
-(defclass SharpsignSharpsign []
+(defclass SharpsignSharpsign [hy.models.HyObject]
   (defn __init__ [self label]
     (setv self.label  label))
   (defn  __repr__ [self]
     (.format "#{}#" self.label)))
-(defclass SharpsignEquals []
+(defclass SharpsignEquals [hy.models.HyObject]
   (defn __init__ [self label obj]
     (setv self.label  label
           self.obj  obj))
   (defn __repr__ [self]
-    (.format "#{}={}" self.label self.obj)))
+    (.format "#{}={}" self.label (hy-repr self.obj))))
 (defn circularize [obj]
     """Modify and return OBJ, such that each instance of SharpsignEquals or
     SharpsignSharpsign is replaced by the corresponding object.
@@ -92,25 +113,46 @@
       [(isinstance obj SharpsignEquals)
        (do  (setv result (copy obj.obj)
                   (get table obj.label) result)
+             ;;(print "circularize-cp-obj" (hy-repr result))
             result)]
+      [(coll? obj)
+       (do
+         ;;(print "circularize-cp-col" (hy-repr obj))
+         ;;(print "circularize-cp-col1" obj)
+         (setv ret  ((type obj) (lfor elt obj (copy elt))) )
+         ;;(print "circularize-cp-col2" (hy-repr ret))
+         ret
+         )
+       ]      
       [(hyclb.core.cons? obj)
-       (hyclb.core.cons
-         (copy (hyclb.core.car obj))
-         (copy (hyclb.core.cdr obj)))]
-      [(coll? obj) ((type obj) (lfor elt obj (copy elt)))]
-      [True obj]))
+       (do
+         ;;(print "circularize-cp-con" (hy-repr obj))
+         ((type obj)
+           (hyclb.core.cons
+             (copy (hyclb.core.car obj))
+             (copy (hyclb.core.cdr obj)))))]
+      ;;[(coll? obj) ((type obj) (lfor elt obj (copy elt)))]      
+      [True
+       (do
+         ;;(print "circularize-cp-oth" (hy-repr obj))
+         obj)
+       ]))
   (defn finalize [obj]
     (cond
       [(isinstance obj SharpsignSharpsign) (get table obj.label)]
       [(coll? obj)
-       ((type obj)
-         (lfor elt obj
-               (if (isinstance elt SharpsignSharpsign)
-                   (get table elt.label)
-                   (finalize elt))))]
+       (do
+         ;;(print "circularize-fin-col" (hy-repr obj))
+         ((type obj)
+           (lfor elt obj
+                 (if (isinstance elt SharpsignSharpsign)
+                     (get table elt.label)
+                     (finalize elt)))))
+       ]
       [(hyclb.core.cons? obj)
        (do (setv c (hyclb.core.car obj)
                  d (hyclb.core.cdr obj))
+           ;;(print "circularize-fin-con" c d)
            (hyclb.core.cons
              (if (isinstance c SharpsignSharpsign)
                  (get table c.label)
@@ -130,7 +172,9 @@
 
 (defn sharpsign_left_parenthesis [r s c n]
   (setv l  (r.read_delimited_list ")"  s True))
-  (if (not l) [] (list l)))
+  ;;(if (not l) [] (list l))
+  (if (not l) '(vector ) `(vector ~@(list l)))
+  )
 
 ;;;;not compat 
 ;; (defn sharpsign_left_parenthesis [r s c n]
@@ -263,7 +307,6 @@
               [(= syntax_type cl4py.reader.SyntaxType.MULTIPLE_ESCAPE)(setv  escape  False)]
               [True (token.append y)])))
       
-      ;;(print token)
       ;;(print (.join "" token))
       
       ;;# 10.
@@ -324,8 +367,8 @@
           ;; (return (hy.models.HySymbol (+ package "::" name))))))
           (if (not package)
               (if delimiter
-                  (return (hy.models.HyKeyword name))
-                  (return (hy.models.HySymbol name)))
+                  (return (hy.models.HyKeyword (.lower name)))
+                  (return (hy.models.HySymbol  (.lower name))))
               ;;(return (hy.models.HySymbol (+ name ":" self.lisp.package)))
               (if (in (.upper package)
                       ["CL" "COMMON-LISP" "CL4PY" ]
@@ -363,8 +406,7 @@
       (cond
         [(= x  delim)
          (do
-           ;;(print head)
-           ;;(hyclb.core.cdr head)
+           ;;(print (hy-repr head))
            head
            )
            ]
@@ -374,7 +416,9 @@
                                 ;(print "dot" e)
            ;;(setv head (hyclb.core.cons head e))
            ;;(tail_add head delim)
-           (tail_add (hyclb.core.cons head e) delim)
+           ;;(print "read_deli-cons" head e)
+           ;;(tail_add (hyclb.core.cons head e) delim)
+           (tail_add `(cons ~head ~e) delim)
            )
          ]
         [True
@@ -438,27 +482,39 @@
     ;;# Update the current package.
     ;;(setv self.package  pkg)
     ;;# Write the Lisp output to the Python output.
-    ;;(print msg end="")
+    (print msg :end "")
     ;;# If there is an error, raise it.
     ;; if isinstance(err, Cons):
-    ;;         condition = err.car
-    ;;         msg = err.cdr.car if err.cdr else ""
-    ;;         def init(self):
-    ;;             RuntimeError.__init__(self, msg)
-    ;;         raise type(str(condition), (RuntimeError,),
-    ;;                    {'__init__': init})()
-    ;;     # Now, check whether there are any unpatched instances.  If so,
-    ;;     # figure out their class definitions and patch them accordingly.
-    ;;     items = list(self.unpatched_instances.items())
-    ;;     self.unpatched_instances.clear()
-    ;;     for (cls_name, instances) in items:
-    ;;         cls = type(cls_name.python_name, (LispWrapper,), {})
-    ;;         self.classes[cls_name] = cls
-    ;;         alist = self.function('cl4py:class-information')(cls_name)
-    ;;         for cons in alist:
-    ;;             add_member_function(cls, cons.car, cons.cdr)
-    ;;         for instance in instances:
-    ;;             instance.__class__ = cls
+    (if (coll? err)
+        (do
+          (print "err" (hy-repr err))
+          ;; (setv condition (hyclb.core.car err)
+          ;;       msg
+          ;;       (if (hyclb.core.null/cl (hyclb.core.cdr err))
+          ;;           "" (hyclb.core.car (hyclb.core.cdr err))))
+          ;; (defn init [self] (RuntimeError.__init__  self msg))
+          ;; (raise ((type (str condition) (, RuntimeError), {"__init__" init})))
+          )
+        )
+
+    
+    ;; ;; # Now, check whether there are any unpatched instances.  If so,
+    ;; ;;  # figure out their class definitions and patch them accordingly.
+    ;; (setv items  (list (self.unpatched_instances.items)))
+    ;; (self.unpatched_instances.clear)
+    ;; (for [(, cls_name instances) items]
+    ;;   (print "cls_name" cls_name)
+    ;;   (print "instances" instances)      
+    ;;   (setv
+    ;;     cls (type cls_name.python_name (, LispWrapper) {})
+    ;;     (get self.classes cls_name) cls
+    ;;     alist  ((self.function "cl4py:class-information") cls_name))
+    ;;   (for [cons alist]
+    ;;     (add_member_function cls (car cons) (cdr cons)))
+    ;;   (for [instance instances]
+    ;;     (setv instance.__class__  cls)))
+
+    
     ;;     # Finally, return the resulting values.
     ;;     if val == ():
     ;;         return None
@@ -494,6 +550,13 @@
 (clisp.eval_qexpr '(ql:quickload "optima"))
 (clisp.eval_qexpr '(rename-package 'optima 'om) )
 (clisp.eval_qexpr '(rename-package 'optima.core 'omc) )
+
+(clisp.eval_qexpr '(ql:quickload "trivia"))
+;; (clisp.eval_qexpr '(rename-package 'trivia 'tv) )
+;; (clisp.eval_qexpr '(rename-package 'trivia.level1 'tv1) )
+;; (clisp.eval_qexpr '(rename-package 'trivia.skip 'tvskip) )
+;; (clisp.eval_qexpr '(rename-package 'trivia.balland2006 'tvballand2006) )
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -633,173 +696,192 @@
   False)
 
 
+;; (defn qexp-macroexpand-with-fail [p]
+;;   (lif p2
+;;        (if (and (coll? p2) (empty? p2 ))
+;;                (walk (fn [p] (inner p smaclet-vpar)) identity p)
+;;                (walk (fn [p2] (inner p2 smaclet-vpar)) identity p2)
+;;                )
+;;            (walk (fn [p] (inner p smaclet-vpar)) identity p)
+;;            ))
+    
+
 (defn qexp-macroexpand-1 [p &optional [non-cl-macro-expand-symbols non-cl-macro-expand-symbols] ]
   (if (non-cl-macro-expand-expr? p non-cl-macro-expand-symbols)
       p
       (do
+        ;;(print "mex1fn")
+        ;; (print (hy-repr non-cl-macro-expand-symbols))        
+        ;;(print (hy-repr p))        
         (setv p3 (clisp.eval_qexpr `(macroexpand-1 '~p)))
-        ;; (print "mex1fn")
-        ;; (print (hy-repr non-cl-macro-expand-symbols))
-        ;; (print (hy-repr p))
-        ;; (print (hy-repr p3))
+        ;;(print (hy-repr p3))
         p3
         )))
   
 (import copy)
 
-;; (defn q-exp-symbol-macrolet [code]
+(defn q-exp-macroexpand-flag [p2]
+  (lif p2
+       (if (and (coll? p2) (empty? p2 ))
+           True
+           False)
+       True))
+
+(defn qexp-macroexpand-2 [p &optional [non-cl-macro-expand-symbols non-cl-macro-expand-symbols] ]
+  (setv change-flag True)
+  (while change-flag
+    (setv p-pre (copy.copy p))
+    (setv p (qexp-macroexpand-1 p non-cl-macro-expand-symbols))
+    (setv change-flag (not (= p-pre p)))
+    (if (q-exp-macroexpand-flag p)  (return p-pre)))
+  p)
   
   
 (defn q-element-clmc-replace [p &optional [element-renames element-renames]]
-  ;;(print "q-element-clmc-replace"  (hy-repr p))
-  ;; (if (q-exp-fn? p 'symbol-macrolet)
-  ;;     (do
-  ;;       (setv change-flag True)
-  ;;       (while change-flag
-  ;;         (setv p-pre (copy.copy p))
-  ;;         (setv p `(symbol-macrolet  ~@(hyclb.core.symbol-macrolet-cl-qexp p)))
-  ;;         (print "mlet1" (hy-repr p))
-  ;;         (setv p
-  ;;               (prewalk
-  ;;                 (fn [p1]
-  ;;                   (clisp.eval_qexpr
-  ;;                     `(macroexpand-1 '~p1)))
-  ;;                 p))
-  ;;         (print "mlet2" (hy-repr p))
-  ;;         (setv change-flag (not (= p-pre p))))
-  ;;       p
-  ;;       )
   (if (not (coll? p))
+      p
+      (if (non-cl-macro-expand-expr? p)
           p
-          (if (non-cl-macro-expand-expr? p)
-              p
-              (do
-                (setv p1 `(macroexpand '~p))
-                ;;(print "p1" (hy-repr p1))
-                ;;(setv p2  (hy.models.HyExpression (clisp.eval_qexpr p1)))
-                (setv p2  (clisp.eval_qexpr p1))
-                ;;(print "p2" (hy-repr p2))
-                (lif p2
-                     (if (and (coll? p2) (empty? p2))
-                         p
-                         p2)
-                     p)
-                ))))
+          (do
+            (setv p1 `(macroexpand '~p))
+            ;;(print "p1" (hy-repr p1))
+            ;;(setv p2  (hy.models.HyExpression (clisp.eval_qexpr p1)))
+            (setv p2  (clisp.eval_qexpr p1))
+            ;;(print "p2" (hy-repr p2))
+            (if (q-exp-macroexpand-flag p2) p p2)
+            ))))
 
 
-(defn q-exp-clmc-rename-deep2 [p &optional [non-cl-macro-expand-symbols non-cl-macro-expand-symbols] ]
+(defn q-exp-clmc-rename-deep3 [p &optional [non-cl-macro-expand-symbols non-cl-macro-expand-symbols] ]
   (defn inner [p smaclet-vpar]
-    (if
-      (q-exp-fn? p 'symbol-macrolet)
-      (do
-        ;;(print "smlet-start " (hy-repr p))
-        (setv p-start (copy.copy p))
-        (setv change-flag True)
-        (while change-flag
-          (setv p-pre (copy.copy p))
-          (setv p
-                (+
-                  (cut p-start 0 2)
-                  (symbol-macrolet-cl-qexp
-                    p
-                    (fn [p1 vpar1 else-task1 cont1]
-                      ;;(print "vpar1" (hy-repr vpar1))
-                      (setv p2 (qexp-macroexpand-1 p1 vpar1))
-                      ;;(print "mex1" (hy-repr p2))
-                      p2
-                      ))))
-          ;;(print "mlet1" (hy-repr p))
-          (setv change-flag (not (= p-pre p)))
-          ;;(print "mlet1-flag" change-flag)
+    ;;(print "inner3" (hy-repr smaclet-vpar) (hy-repr p))
+    (if (q-exp-fn? p 'symbol-macrolet)
+        (do
+          (setv smaclet-vpar (qexp-var-pairs-add smaclet-vpar (qexp-cl-var-pairs-colon-mod (get p 1))))
+          (setv p `(progn ~@(cut p 2 None)))
+          ))
+    ;;(print "smlet-start " (hy-repr p))
+    ;;(setv p-start (copy.copy p))
+    (setv change-flag-me True)
+    ;;(while change-flag-me
+    (setv change-flag-sm True)
+    (while change-flag-sm
+      (setv p-pre-sm (copy.copy p)
+            p (qexp-symbol-macrolet-apply-deep p smaclet-vpar True)
+            ;;(setv p (walk (fn [p0] (symbol-macrolet-cl-qexp-inner p0 smaclet-vpar)) identity p))
+            change-flag-sm (not (= p-pre-sm p)))
+      ;;(print "sm-apply" (hy-repr smaclet-vpar) (hy-repr p))
+      )
+    (setv p-pre-me (copy.copy p)
+          smaclet-vnam (list (map first smaclet-vpar))
+          p (qexp-macroexpand-1 p smaclet-vnam)
+          change-flag-me (not (= p-pre-me p))
           )
-        (setv p `(progn ~@(cut p 2 None)))
+    (if (q-exp-macroexpand-flag p)
+        (do
+          (setv change-flag-me False
+                p p-pre-me)))
+    (if change-flag-me
+        (inner p smaclet-vpar )
+        (walk (fn [p0] (inner p0  smaclet-vpar)) identity p)
         ))
-    ;;(sys.exit 0)
-    (do
-      (setv p1 `(macroexpand '~p))
-      ;;(print "p1" (hy-repr p1))
-      (setv p2  (clisp.eval_qexpr p1))
-      ;;(print "p2" (hy-repr p2))
-      (lif p2
-           (if (and (coll? p2) (empty? p2 ))
-               (walk (fn [p] (inner p smaclet-vpar)) identity p)
-               (walk (fn [p2] (inner p2 smaclet-vpar)) identity p2)
-               )
-           (walk (fn [p] (inner p smaclet-vpar)) identity p)
-           ))
-    )
+    
+  (setv non-cl-macro-expand-symbols-pair  `( ~@(lfor k non-cl-macro-expand-symbols `(k k))))
   (walk 
-    (fn [p] (inner p non-cl-macro-expand-symbols))
+    (fn [p0] (inner p0 non-cl-macro-expand-symbols-pair))
     identity
-    (inner p non-cl-macro-expand-symbols) 
+    (inner p non-cl-macro-expand-symbols-pair)
     )
   )
 
-  ;;   (setv smaclet-vpar '())
 
-;;   ;; (defn non-cl-macro-expand-expr? [p]
-;;   ;;   (for [f non-cl-macro-expand-symbols] (if (q-exp-fn0? p f) (return True))) False)
-;;   ;; (defn has-symbol-macrolet? [code] 
-;;   ;;   (setv flag False)
-;;   ;;   (postwalk (fn [p] (if (q-exp-fn? p 'symbol-macrolet) (do (setv flag True) p) p)) code) flag)
-
-;;   (defn else-task [p vpar else-task1 cont]
-;;     ;;(symbol-macrolet-cl-qexp-inner
-;;     (qexp-macroexpand-1 p vpar)
-;;     ;;p vpar cont))
-;;     )
-  
-
-;;   (defn inner1 [p vpar else-task1 cont]
-;;     (symbol-macrolet-cl-qexp-inne
-;;       (qexp-macroexpand-1 p vpar)
-;;       p vpar cont))    
-  
-;;   (defn inner [p smaclet-vpar cont]
-;;     ;; (if (not (has-symbol-macrolet? p))
-;;     ;;     (prewalk (fn [p1] (clisp.eval_qexpr `(macroexpand '~p1))) p)
-    
+;; (defn q-exp-clmc-rename-deep2 [p &optional [non-cl-macro-expand-symbols non-cl-macro-expand-symbols] ]
+;;   (defn inner [p smaclet-vpar]
+;;     (print "inner" (hy-repr smaclet-vpar) (hy-repr p))
 ;;     (if (q-exp-fn? p 'symbol-macrolet)
-;;         (walk 
-;;           (fn [p1] (symbol-macrolet-cl-qexp-inner
-;;                      p1
-;;                      (qexp-cl-var-pairs-colon-mod (get code 1))
-;;                      ))
-;;           identity
-;;           (cut p 2 None)
-;;           inner
-;;           (fn [p vpar else-task1 cont] (qexp-macroexpand-1 p vpar))
- 
-;;           ;; (fn [p2 vpar ]
-;;           ;;   (qexp-macroexpand-1 p2 
-                                
-;;           ))
-
-        
-;;         (+= smaclet-vpar
-;;             (hyclb.core.qexp-cl-var-pairs-colon-mod (get code 1))))
-;;     (if (empty? smaclet-vpar
-;;         (walk (fn [p1] (inner p1 smaclet-vpar) identity
-;;               (clisp.eval_qexpr `(macroexpand '~p)))
 ;;         (do
-;;           (setv vnam (list (map first  vpar)
-;;                 vval  (list (map second vpar))
-          
-;;           (setv change-flag True)
-;;           (while change-flag
-;;             (setv p-pre (copy.copy p))
-;;             (setv p `(symbol-macrolet  ~@(hyclb.core.symbol-macrolet-cl-qexp p)))
-;;             (for [v vnam]  (if (= `(~v) p) (return p)))
-          
-;;           (print "mlet1" (hy-repr p))
-;;           (setv
-;;             p
-;;             (walk
-;;               (fn [p1] (clisp.eval_qexpr `(macroexpand-1 '~p1)))
+;;           (setv smaclet-vpar (qexp-var-pairs-add smaclet-vpar (qexp-cl-var-pairs-colon-mod (get p 1))))
+;;           (setv p `(progn ~@(cut p 2 None)))
+;;         ))
+;;     (print "smlet-start " (hy-repr p))
+;;     ;;(setv p-start (copy.copy p))
+;;     (setv change-flag-me True)
+;;     (while change-flag-me
+;;       (setv change-flag-sm True)
+;;       (while change-flag-sm
+;;         (setv p-pre-sm (copy.copy p))
+;;         (setv p (walk (fn [p0] (symbol-macrolet-cl-qexp-inner p0 smaclet-vpar)) identity p))
+;;         ;; (setv p
+;;         ;;       (+
+;;         ;;         (cut p-start 0 2)
+;;         ;;         (symbol-macrolet-cl-qexp
+;;         ;;           p
+;;         ;;           ;; (fn [p1 vpar1 else-task1 cont1]
+;;         ;;           ;;   (print "vpar1" (hy-repr vpar1))
+;;         ;;           ;;   (setv p2 (qexp-macroexpand-1 p1 vpar1))
+;;         ;;           ;;   (print "mex1" (hy-repr p2))
+;;         ;;           ;;   p2)
+;;         ;;           ;; None
+;;         ;;           ;; (fn [p1 vpar1 else-task1 cont-walk-base1]
+;;         ;;           ;;   (setv p2 (qexp-macroexpand-1 p1 vpar1))
+;;         ;;           ;;   (setv p3 (if (q-exp-macroexpand-flag p2) p1 p2))
+;;         ;;           ;;   (if (not (= p1 p3))
+;;         ;;           ;;       ;;(symbol-macrolet-cl-qexp-inner p3 '())
+;;         ;;           ;;       (symbol-macrolet-cl-qexp-inner p3 vpar1)
+;;         ;;           ;;       (symbol-macrolet-cl-qexp-inner p3 vpar1 else-task1 cont-walk-base1)
+;;         ;;           ;;       ))
+;;         ;;           ;;None
+;;         ;;           )))
+;;         ;;(print "mlet1" (hy-repr p))
+;;         (setv change-flag-sm (not (= p-pre-sm p)))
+;;         ;;(print "mlet1-flag" change-flag)
+;;         )
+;;       (setv p-pre-me (copy.copy p))
+;;       (setv p (qexp-macroexpand-1 p smaclet-vpar))
+;;       (setv change-flag-me (not (= p-pre-me p)))
+;;       ;;(setv p `(progn ~@(cut p 2 None)))
+;;       ;;(+= smaclet-vpar  (qexp-cl-var-pairs-colon-mod (get p-start 1)))
+;;       ;;(setv p (+ (cut p-start None 2) (cut p 2 None)))
+;;       )
+;;     ;;(sys.exit 0)
+;;     ;; (do
+;;     ;;   (setv change-flag True)
+;;     ;;   (while change-flag
+;;     ;;     (setv p-pre (copy.copy p))
+;;     ;;     (setv p (qexp-macroexpand-1 p smaclet-vpar))
+;;     ;;     (setv change-flag (not (= p-pre p)))
+;;     ;;     (if (q-exp-macroexpand-flag p)
+;;     ;;         (do 
+;;     ;;           (setv change-flag True)
+;;     ;;           (setv p p-pre)
+;;     ;;           (break)))
+;;     ;;     (if change-flag
+;;     ;;         (setv p (qexp-macroexpand-1 p smaclet-vpar))
+;;     ;;         (walk  (fn [p1] (symbol-macrolet-cl-qexp-inner  p1 smaclet-vpar))  identity p)
+;;     ;;         ))
+;;     ;;   ;; (if (not (q-exp-fn? p 'symbol-macrolet))
+;;     ;;   ;;(setv p2 (qexp-macroexpand-2 p smaclet-vpar))
+;;     ;;   (if (q-exp-fn? p 'symbol-macrolet)
+;;     ;;       (walk 
+;;     ;;         (fn [p0] (inner p0 smaclet-vpar))
+;;     ;;         identity
+;;     ;;         (inner p   (+  (qexp-cl-var-pairs-colon-mod (get p 1)) smaclet-vpar)  )
+;;     ;;         )
+;;     ;;(if (q-exp-macroexpand-flag p)
+;;     (walk (fn [p0] (inner p0  smaclet-vpar)) identity p)
+;;     ;;(walk (fn [p2] (inner p2 smaclet-vpar)) identity p2)
+;;     ;;)
+;;     )
     
+;;   (setv non-cl-macro-expand-symbols-pair  `( ~@(lfor k non-cl-macro-expand-symbols `(k k))))
+;;   (walk 
+;;     (fn [p0] (inner p0 non-cl-macro-expand-symbols-pair))
+;;     identity
+;;     (inner p non-cl-macro-expand-symbols-pair)
+;;     )
 ;;   )
 
-
+ 
 
 (defn q-exp-clmc-rename-deep [p];; &optional [clisp clisp]]
   (prewalk q-element-clmc-replace p))
@@ -815,7 +897,7 @@
      ~@(lfor p code
              (do
                ;;(setv ret1 (q-exp-clmc-rename-deep  p) )
-               (setv ret1 (q-exp-clmc-rename-deep2 p) )               
+               (setv ret1 (q-exp-clmc-rename-deep3 p) )
                ;;(print "ret1" (hy-repr ret1))
                (setv ret2 (q-exp-rename-deep ret1)) 
                ;;(print "ret2" (hy-repr ret2))

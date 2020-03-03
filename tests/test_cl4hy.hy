@@ -58,8 +58,18 @@
     (testfngl1 12 35)
     50
     )
+
+  (defun testcldbind ()
+    (let ((l (list 1 2 3)))
+      (destructuring-bind (x y z) l
+        (+ x y z))))
+  (eq_
+    (testcldbind)
+    6
+    )
   
   )
+
 
 (defn test-quicklisp []
   ;;(setv clisp (Clisp :quicklisp True))
@@ -70,20 +80,17 @@
     '(0 1 2)
     ;;[0 1 2]
     )
+  )
 
-
-
-  ;; (import numpy) 
-  ;; (defun testfn3 (X Y)
-  ;;   (numpy.random.rand
-  ;;     (get 
-  ;;       (alexandria:destructuring-case
-  ;;         '(:a 0 X Y)   ((:a u v w) (list 1 2 u v w ))  ((t &rest rest) :else))
-  ;;       0)
-  ;;     )
-  ;;   )
-  ;; (print (testfn3 3 2))
-  
+(defn test-cl4hy-misc []
+  (eq_
+    (clisp.eval_qexpr '(list 1 2 3))
+    '(1 2 3) )
+  (eq_
+    (clisp.eval_qexpr '(vector 1 2 3))
+    '(vector 1 2 3)
+    ;;[1 2 3]
+    )
   )
 
 
@@ -113,13 +120,20 @@
 )
 
 (defn test-optima []
-  (defun testfn []
+  (defun testom1 []
     (om:match (list 1 2)
               ((list _) 1)
               ((list _ _) 2)
               ((list _ _ _) 3)
               ) )
   (eq_
-    (testfn)
+    (testom1)
     2)
+
+  (defun testom2 []
+    (om:match 1 ((om:guard x (eql x 1)) t))
+  )
+  (eq_
+    (testom2)
+    True)
   )

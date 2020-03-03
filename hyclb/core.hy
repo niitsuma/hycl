@@ -162,8 +162,11 @@ be nested in `cons`es, e.g.
   (defn consp [el]  (cons? el))
   (defn atom/cl [x] (not (cons? x)))
 
-  (defn eq [x y]      (is x y))
-  (defn equals [x y]  (= x y))
+  (defn eq     [x y]  (is x y))
+  (defn eql    [x y]  (is x y))
+  (defn equal  [x y]  (= x y))  
+  ;;(defn equals [x y]  (= x y))
+  (defn equalp [x y]  (= x y))
 
   ;; ;; numerical functions
   (defn mod [n m] (% n m))
@@ -250,6 +253,8 @@ be nested in `cons`es, e.g.
 
   (defn declare/cl   [&rest args]  )
   (defn ignorable/cl [&rest args]  )
+
+  (defn sb-c::check-ds-list [&rest args] (first args))
 
   (defn error/cl [&optional msg] 
     (lif msg (raise (ValueError msg)) (raise ValueError)))
@@ -750,12 +755,82 @@ be nested in `cons`es, e.g.
 ;;   '((foo (+ 2 3)))
 ;;   ))
 
+(defn qexp-var-pairs-add [vpar vpar-add]
+  ;;(setv vpar-add (get p 1))
+  (if (not (empty? vpar-add))
+      (do 
+        (setv
+          ;;vpar-add (qexp-cl-var-pairs-colon-mod vpar-add)
+          vnam-add (list (map first  vpar-add))
+          vpar-mod `(~@(list (filter (fn [x] (in (first x) vnam-add)) vpar)))
+          vnam-mod (list (map first  vpar-mod))
+          vpar-mod `(~@(list (filter (fn [x] (in (first x) vnam-mod)) vpar-add)))
+          vpar-res `(~@(list (filter (fn [x] (not (in (first x) vnam-mod))) vpar)))
+          vpar-add `(~@(list (filter (fn [x] (not (in (first x) vnam-mod))) vpar-add)))
+          vpar (+ vpar-res vpar-mod vpar-add )
+          )
+        vpar)
+      vpar))
+  
+(defn qexp-var-pairs-sub [vpar vpar-ignore]
+  (if (not (empty? vpar-ignore))
+      (do 
+        (setv vnam-ignore (list (map first vpar-ignore))
+              vpar `(~@(list (filter (fn [x] (not (in (first x) vnam-ignore))) vpar))))
+        vpar)
+      vpar))
+      
+(defn qexp-symbol-macrolet-apply-deep [p vpar &optional cl-mode]
+  (if (or
+        (q-exp-fn? p 'let)
+        (q-exp-fn? p 'let*)
+        (q-exp-fn? p 'let/cl)
+        )
+      (do
+        (setv vpar-ignore (get p 1))
+        (if (q-exp-fn? p 'let)  (setv vpar-ignore (qexp-var-pairs-hy2cl vpar-ignore)))
+        (lif cl-mode (setv vpar-ignore  (qexp-cl-var-pairs-colon-mod vpar-ignore)))
+        (setv vpar (qexp-var-pairs-sub vpar vpar-ignore))
+        )
+      (if (q-exp-fn? p 'symbol-macrolet)
+          (do
+            (setv vpar-add (get p 1))
+            (lif cl-mode (setv vpar-add  (qexp-cl-var-pairs-colon-mod vpar-add)))
+            (setv vpar (qexp-var-pairs-sub vpar vpar-add)))))
+  (setv vnam  (list (map first  vpar))
+        vval  (list (map second vpar)))
+  (for [v vnam] (if (= `(~v) p) (return p)))
+  (if
+    (and (symbol? p) (in p vnam) ) (get vval (.index vnam p))
+    (if
+      (not (coll? p)) 
+      p
+      (do
+        (if (q-exp-fn? p 'symbol-macrolet)
+            (do 
+              (setv pa (cut p 0 2)
+                    pb (cut p 2 None))
+              (+
+                pa
+                (walk
+                  (fn [p0] (qexp-symbol-macrolet-apply-deep p0 vpar))
+                  identity pb)))
+            (do
+              (walk
+                (fn [p0] (qexp-symbol-macrolet-apply-deep p0 vpar))
+                identity p)))))))
+                      
+      
+
+
 (defn symbol-macrolet-cl-qexp-inner [p vpar
                                      &optional
                                      else-task
                                      cont-walk-base
                                      ]
-  ;;(print "mlet-vpars" (hy-repr vpar))
+  ;; (print "symbol-macrolet-cl-qexp-inner")
+  ;; (print "vpars" (hy-repr vpar))
+  ;; (print  (hy-repr p))
   (if (or
         (q-exp-fn? p 'let)
         (q-exp-fn? p 'let*)
@@ -775,6 +850,7 @@ be nested in `cons`es, e.g.
                     vpar `(~@(list (filter (fn [x] (not (in (first x) vnam-ignore))) vpar)))))))
       (if (q-exp-fn? p 'symbol-macrolet)
           (do
+            ;;(print "symbol-macrolet-cl-qexp-inner smlet" vpar)
             (setv vpar-add (get p 1))
             (if (not (empty? vpar-add))
                 (do 
