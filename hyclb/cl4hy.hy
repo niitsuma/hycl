@@ -15,9 +15,14 @@
 (import hy)
 (import [hy.contrib.hy-repr [hy-repr]])
 
+(import [hy.contrib.walk [postwalk prewalk walk]])
+
 ;;(import  [hyclb.core [cons cdr]])
 
+(import  [hyclb.models [hyclvector hycllist]] )
+
 ;;(eval-and-compile
+
 (import  hyclb.core)
 (import [hyclb.core
          [qexp-cl-var-pairs-colon-mod
@@ -25,7 +30,11 @@
           symbol-macrolet-cl-qexp
           ;;symbol-macrolet-cl-qexp-inner
           qexp-var-pairs-add
-          qexp-var-pairs-sub          
+          qexp-var-pairs-sub
+          vector/cl
+          list/cl
+          SharpsignSharpsign
+          SharpsignEquals          
           ]])
 
 
@@ -92,17 +101,7 @@
 ;;     ))
 
 
-(defclass SharpsignSharpsign [hy.models.HyObject]
-  (defn __init__ [self label]
-    (setv self.label  label))
-  (defn  __repr__ [self]
-    (.format "#{}#" self.label)))
-(defclass SharpsignEquals [hy.models.HyObject]
-  (defn __init__ [self label obj]
-    (setv self.label  label
-          self.obj  obj))
-  (defn __repr__ [self]
-    (.format "#{}={}" self.label (hy-repr self.obj))))
+
 (defn circularize [obj]
     """Modify and return OBJ, such that each instance of SharpsignEquals or
     SharpsignSharpsign is replaced by the corresponding object.
@@ -115,6 +114,7 @@
                   (get table obj.label) result)
              ;;(print "circularize-cp-obj" (hy-repr result))
             result)]
+      [(instance? hyclb.core.ConsPair obj) (hyclb.core.cons (copy obj.car) (copy obj.cdr)) ]
       [(coll? obj)
        (do
          ;;(print "circularize-cp-col" (hy-repr obj))
@@ -140,6 +140,16 @@
   (defn finalize [obj]
     (cond
       [(isinstance obj SharpsignSharpsign) (get table obj.label)]
+      [(instance? hyclb.core.ConsPair obj)
+       (do (setv c obj.car
+                 d obj.cdr)
+           (hyclb.core.cons
+             (if (isinstance c SharpsignSharpsign)
+                 (get table c.label)
+                 (finalize c))
+             (if (isinstance d SharpsignSharpsign)
+                 (get table d.label)
+                 (finalize d))))]
       [(coll? obj)
        (do
          ;;(print "circularize-fin-col" (hy-repr obj))
@@ -164,6 +174,18 @@
     (setv result (copy obj))
     (finalize result))
 
+
+(defn left_parenthesis  [r s c]
+  (r.read_delimited_list ")" s True)
+  ;;(list/cl  #*(r.read_delimited_list ")" s True))
+  ;; (setv ret (r.read_delimited_list ")" s True))
+  ;; (print "left_parenthesis ret" ret)
+  ;; ret
+  ;;(+ '(list) (r.read_delimited_list ")" s True))
+  )
+
+(defn right_parenthesis [r s c] (raise (RuntimeError "Unmatched closing parenthesis.")))
+
 (defn single_quote [r s c] (quote (r.read_aux s) )) 
 (defn sharpsign_equal [r s c n]
   (setv value  (r.read_aux s))
@@ -173,7 +195,8 @@
 (defn sharpsign_left_parenthesis [r s c n]
   (setv l  (r.read_delimited_list ")"  s True))
   ;;(if (not l) [] (list l))
-  (if (not l) '(vector ) `(vector ~@(list l)))
+  (if (not l) (vector/cl ) (vector/cl  #*(list l)))
+  ;;(if (not l) '() (+ '(vector) l))
   )
 
 ;;;;not compat 
@@ -227,6 +250,8 @@
 (defclass ReadtableHy [cl4py.reader.Readtable]
   (defn __init__ [self lisp]
     (.__init__ (super) lisp)
+    (self.set_macro_character "(" left_parenthesis)
+    (self.set_macro_character ")" right_parenthesis)
     (self.set_macro_character "'" single_quote)
     (self.set_macro_character "#" sharpsign)
     (self.set_dispatch_macro_character "#" "(" sharpsign_left_parenthesis)
@@ -240,7 +265,12 @@
     (if (not (isinstance stream Stream))
              (setv stream  (Stream stream :debug self.lisp.debug)))
     (setv value  (self.read_aux stream))
+    ;;(print "read ret val" value)
     (if recursive value (circularize value)))
+
+  (defn read_str [self s &optional [recursive False]]
+    (import [io [StringIO]])
+    (self.read (StringIO s) recursive))
   
   (defn reads [self stream &optional [recursive False]]
     (if (not (isinstance stream cl4py.data.Stream))
@@ -274,6 +304,7 @@
          (do
            ;;(print (self.get_macro_character x))
            (setv value ((self.get_macro_character x) self stream x))
+           ;;(print "get_macro_character ret" x  value)
            (lif-not value (continue) (return value)))]
         ;;# 5. single escape character
         [(= syntax_type cl4py.reader.SyntaxType.SINGLE_ESCAPE)
@@ -401,24 +432,33 @@
             (do (stream.unread_char) (break)))))
     
     (defn tail_add [head delim]
+      ;;(print "tail_add-top" head delim)
       (skip_whitespace)
       (setv x (stream.read_char))
       (cond
         [(= x  delim)
          (do
-           ;;(print (hy-repr head))
+           ;;(print "head-ret" (hy-repr head))
+           ;;(print "head-ret" head)
            head
            )
            ]
         [(= x ".")
          (do
            (setv e (self.read stream True))
-                                ;(print "dot" e)
            ;;(setv head (hyclb.core.cons head e))
            ;;(tail_add head delim)
-           ;;(print "read_deli-cons" head e)
            ;;(tail_add (hyclb.core.cons head e) delim)
-           (tail_add `(cons ~head ~e) delim)
+           (if (empty? (cut head None -1))
+               (tail_add
+                 (hyclb.core.cons
+                   (last head)
+                   e)
+                 delim)
+               (tail_add
+                 (hyclb.core.cons #*(+ head `(~e)))
+                 delim))
+           ;;(tail_add (cons head e) delim)
            )
          ]
         [True
@@ -441,7 +481,7 @@
     ;; (print "ret "ret)
     ;; ret
     (tail_add '() delim)
-    ;;(tail_add [] delim)      
+    ;;(tail_add (,) delim)
     )
   )
 
@@ -543,23 +583,52 @@
 ;;(clisp.eval_qexpr '(rename-package 'alexandria 'alex))
 ;;(clisp.eval_qexpr '(sb-ext:unlock-package 'alexandria))
 
+(clisp.eval_qexpr '(ql:quickload "macroexpand-dammit"))
+
 (clisp.eval_qexpr '(ql:quickload "anaphora"))
+
+(clisp.eval_qexpr '(ql:quickload "optima"))
+(clisp.eval_qexpr '(ql:quickload "trivia"))
+(clisp.eval_qexpr '(ql:quickload "sxql"))
+(clisp.eval_qexpr '(ql:quickload "jsown"))
+;;(clisp.eval_qexpr '(ql:quickload "unix-opts"))
+
+(clisp.eval_qexpr '(ql:quickload "fare-quasiquote"))
+(clisp.eval_qexpr '(asdf:load-system "fare-quasiquote-extras"))
+(clisp.eval_qexpr '(named-readtables:in-readtable :fare-quasiquote))
+
 (clisp.eval_qexpr '(rename-package 'anaphora 'ap) )
 ;;(clisp.eval_qexpr '(add-nickname :ap :anaphora))
 
-(clisp.eval_qexpr '(ql:quickload "optima"))
 (clisp.eval_qexpr '(rename-package 'optima 'om) )
 (clisp.eval_qexpr '(rename-package 'optima.core 'omc) )
+(clisp.eval_qexpr '(rename-package 'optima.extra 'ome) )
 
-(clisp.eval_qexpr '(ql:quickload "trivia"))
-;; (clisp.eval_qexpr '(rename-package 'trivia 'tv) )
-;; (clisp.eval_qexpr '(rename-package 'trivia.level1 'tv1) )
-;; (clisp.eval_qexpr '(rename-package 'trivia.skip 'tvskip) )
-;; (clisp.eval_qexpr '(rename-package 'trivia.balland2006 'tvballand2006) )
+(clisp.eval_qexpr '(rename-package 'trivia 'tv) )
+(clisp.eval_qexpr '(rename-package 'trivia.level1 'tv1) )
+(clisp.eval_qexpr '(rename-package 'trivia.level1.impl 'tv1i) )
+(clisp.eval_qexpr '(rename-package 'trivia.skip 'tvskip) )
+(clisp.eval_qexpr '(rename-package 'trivia.balland2006 'tvballand2006) )
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+
+(defn omc:%assoc [item alist &optional [test hyclb.core.eql]]
+  ;;"Safe ASSOC."
+  ;;(declare (optimize (speed 3) (safety 0) (space 0)))
+  ;; (loop
+  ;;   (unless (consp alist) (return))
+  ;;   (let ((cons (car alist)))
+  ;;     (when (and (consp cons)
+  ;;                (funcall test item (car cons)))
+  ;;       (return cons)))
+  ;;   (setq alist (cdr alist))))
+  (hyclb.core.cons item (get alist item))
+)
+
+
+(clisp.eval_qexpr `(defstruct numpy.ndarray  shape ndim))
 
 
 ;; (defn ap::ignore-first [&rest args]
@@ -569,7 +638,6 @@
 ;;   ))
 
 
-(import [hy.contrib.walk [postwalk prewalk walk]])
 
 ;; (clisp.eval_qexpr
 ;;   '(defmacro expandmacro-with-env (form &environment env)
@@ -637,21 +705,27 @@
        'let 'let/cl
        'list   'list/cl 
        'vector 'vector/cl
+       ', '~
+       'progn  'do
+       'locally 'do
        'first 'car
        'rest  'cdr
        'remove 'remove/cl
        'append 'append/cl
        'apply  'apply/cl
        'atom 'atom/cl
+       'typep 'typep/cl
+       'slot-value 'slot-value/cl       
        'multiple-value-bind 'multiple-value-bind/cl
        ;;'return-from 'return-from/cl
        ;;'block  'block/cl
        'error  'error/cl       
        'declare   'declare/cl
        'ignorable 'ignorable/cl
+       'setf 'setv       
        'setq 'setv
-       'setf 'setv
        'defvar 'setv
+       'type  'dummy-fn/cl
        }
       )
 (.update element-renames
@@ -662,6 +736,27 @@
          (dfor k element-renames
                [(hy.models.HySymbol (.upper (str k)))
                 (get element-renames k)]))
+
+
+(setv element-renames-reverse
+      {
+       'list/cl 'list
+       'vector/cl 'vector       
+       'do 'progn
+       }
+      )
+(for [(, k v) (element-renames.items)]
+  (if (not (in v element-renames-reverse))
+      (setv (get element-renames-reverse v) k)))
+
+(setv element-renames-reverse-str (dfor (, k v) (element-renames-reverse.items) [(str k) (str v)]))
+            
+(defn cl_eval_hy_str [expr]
+  (for [(, k v) (element-renames-reverse-str.items)]
+    (setv expr (.replace expr k v )))
+  (clisp.eval_str expr))
+
+  
 
 (defn q-element-replace [p &optional [element-renames element-renames]]
   ;;(print "q-element-cl-replace" p)
@@ -675,8 +770,39 @@
 
 (defn q-exp-rename-deep [p &optional [element-renames element-renames]];; &optional [clisp clisp]]
   ;;(print "q-exp-cl-rename-deep" (hy-repr p))
-  (postwalk (fn [e] (q-element-replace e element-renames)) p)
+  (postwalk (fn [e] (q-element-replace e element-renames)) p) )
+
+
+(defmacro cl_eval_hy [expr]
+  ;;`~(cl_eval_hy_str (hy-repr (q-exp-rename-deep expr element-renames-reverse))))
+  ;;`(cl_eval_hy_str (hy-repr (q-exp-rename-deep ~expr element-renames-reverse))))
+  (setv expr
+        (postwalk
+          (fn [p]
+            (if (and (symbol? p) (in p element-renames-reverse))
+                (get element-renames-reverse p)
+                p))
+          expr))
+  ;;(print (hy-repr expr))
+  ;;;;(setv exs (cut (hy-repr expr) 1 None))
+  ;;;;(clisp.eval_str exs)
+  (setv ret (clisp.eval_qexpr expr))
+  ;;(print ret)
+  ;;(print (hy-repr ret))
+  ;;(setv ret (q-exp-rename-deep ret)) 
+  ;;(print ret)
+  ;;(print (hy-repr ret))
+  ;;ret
+  `'~ret
+  ;; `'~(clisp.eval_qexpr
+  ;;      (postwalk
+  ;;        (fn [p]
+  ;;          (if (and (symbol? p) (in p element-renames-reverse))
+  ;;              (get element-renames-reverse p)
+  ;;               p))
+  ;;         expr))
   )
+
 
 ;;(setv non-cl-macro-expand-symbols [])
 (setv non-cl-macro-expand-symbols
@@ -750,6 +876,11 @@
             ;;(print "p2" (hy-repr p2))
             (if (q-exp-macroexpand-flag p2) p p2)
             ))))
+
+
+(defn q-exp-clmc-rename-deep4 [p &optional [non-cl-macro-expand-symbols non-cl-macro-expand-symbols] ]
+  (clisp.eval_qexpr `(macroexpand-dammit:macroexpand-dammit '~p)))
+  
 
 
 (defn q-exp-clmc-rename-deep3 [p &optional [non-cl-macro-expand-symbols non-cl-macro-expand-symbols] ]
@@ -897,7 +1028,7 @@
      ~@(lfor p code
              (do
                ;;(setv ret1 (q-exp-clmc-rename-deep  p) )
-               (setv ret1 (q-exp-clmc-rename-deep3 p) )
+               (setv ret1 (q-exp-clmc-rename-deep4 p) )
                ;;(print "ret1" (hy-repr ret1))
                (setv ret2 (q-exp-rename-deep ret1)) 
                ;;(print "ret2" (hy-repr ret2))

@@ -36,12 +36,12 @@
 (defn q-exp-cl-rename-deep [p] (postwalk q-element-cl-replace p))
 
 
-(defmacro labels [name arg &rest code]
-  `(defn ~name [~@arg]
-     ~@(lfor p code (q-exp-cl-rename-deep p)))
-     )
+;; (defmacro labels [name arg &rest code]
+;;   `(defn ~name [~@arg]
+;;      ~@(lfor p code (q-exp-cl-rename-deep p)))
+;;      )
 
-(defmacro defun [name arg &rest code]
+(defmacro defun/simple [name arg &rest code]
   `(defn ~name [~@arg]
      ~@(lfor p code (q-exp-cl-rename-deep p)))
      )

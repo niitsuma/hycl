@@ -5,8 +5,10 @@
 (import  [hyclb.core [*]])
 (require [hyclb.core [*]])
 
-(import  [hyclb.util [*]])
-(require [hyclb.util [*]])
+;; (import  [hyclb.util [*]])
+;; (require [hyclb.util [*]])
+
+;;(import  [hyclb.models [hyclvector hycllist]] )
 
 
 (defn assert-all-equal [&rest tests]
@@ -98,16 +100,20 @@
     (list/cl 1 2 3 4)
     '(1 2 3 4))
   (eq_
+    (list/cl)
+    '())
+  (eq_
     (vector/cl 1 2 3 4)
     [1 2 3 4])
-  
+  (eq_
+    (vector/cl)
+    [])
   (eq_
     (nreverse [1 2 3])
     [3 2 1])
   (eq_
     (nreverse '(1 2 3))
     '(3 2 1))
-  
   )
 
 (defn test-nconc []
@@ -334,6 +340,23 @@
     )
   )
 
+(defn test-block []
+  (eq_
+    (block
+      myblock1
+      (setv x 1 )
+      (block
+        myblock2
+        (setv y 3)
+        (return-from myblock1 (+ x y))
+        123
+        )
+      456
+      )
+    4)
+  )
+
+
 (defn test-tagbody []
   (eq_
     (tagbody
@@ -382,30 +405,30 @@
   )
 
 
-(defn test-defun []
+;; (defn test-defun []
   
-  (defun testfn (x y)
-    (if x y (+ 3 y)))
+;;   (defun testfn (x y)
+;;     (if x y (+ 3 y)))
   
-  (eq_
-    (testfn 1 2)
-    2)
-  (eq_
-    (testfn nil/cl 2)
-    5)
+;;   (eq_
+;;     (testfn 1 2)
+;;     2)
+;;   (eq_
+;;     (testfn nil/cl 2)
+;;     5)
 
-  (defun testfn2 (x y)
-    (setq z 20)
-    (if x (+ z y)))
+;;   (defun testfn2 (x y)
+;;     (setq z 20)
+;;     (if x (+ z y)))
 
-  (eq_
-    (testfn2 1 2)
-    22)
+;;   (eq_
+;;     (testfn2 1 2)
+;;     22)
 
-  (eq_
-    (testfn2 [] 2)
-    [])
+;;   (eq_
+;;     (testfn2 [] 2)
+;;     [])
   
   
-  )
+;;   )
     

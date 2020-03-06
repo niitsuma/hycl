@@ -1,6 +1,7 @@
 
 (import re)
 (import copy)
+(import hy)
 (require [hy.contrib.loop [loop]])
 (require [hy.contrib.walk [let]])
 (import [hy.contrib.walk [postwalk prewalk walk]])
@@ -8,7 +9,8 @@
 ;; (import  [hyclb.core [*]])
 ;; (require [hyclb.core [*]])
 
-(import [hy.contrib.hy-repr [hy-repr]])
+(import [hy.contrib.hy-repr [hy-repr hy-repr-register -cat]])
+
 (import cl4py)
 
 ;; (import [cons [cons :as  cons/py car :as car/py cdr :as cdr/py]]) ;;;can not apply on lisp
@@ -16,13 +18,56 @@
 (import [gasync.core [q-exp-fn?]])
 (defn q-exp-fn0?        [p f] (and (coll? p) (= (first p) f)))
 
+(import  [hyclb.models [hyclvector hycllist]] )
+
+;; (hy-repr-register
+;;   hyclvector
+;;   :placeholder "#(...)"
+;;   (fn [x]
+;;     (setv text (.join " " (gfor  v  x (hy-repr v))))
+;;     ;; (global -quoting)
+;;     ;; (setv -quoting True)
+;;     ;;(setv -quoting-bak -quoting)
+;;     (+ "#(" text ")"))
+;;     )
+
+(for
+  [[types fmt]
+   (partition
+     [
+      ;;[list HyList] "[...]"
+      [list HyList hyclvector] "#(...)"
+      ;;[set HySet] "#{...}"
+      ;;frozenset "(frozenset #{...})"
+      ;;dict-keys "(dict-keys [...])"
+      ;;dict-values "(dict-values [...])"
+      ;;dict-items "(dict-items [...])"
+      ])]
+  (defn mkrepr [fmt]
+    (fn [x] (.replace fmt "..." (-cat x) 1)))
+  (hy-repr-register types :placeholder fmt (mkrepr fmt)))
+
+
 (eval-and-compile 
   (import [collections.abc [Iterable]])
   (import  functools)
   (import numpy)
-  
-  
+
+  ;;(defclass HyVector [hy.models.HySequence]  )
   ;;(import [hy.models [HyObject HySequence]])
+  
+  (defclass SharpsignSharpsign []
+    (defn __init__ [self label]
+      (setv self.label  label))
+    (defn  __repr__ [self]
+      (.format "#{}#" self.label)))
+  (defclass SharpsignEquals [];;hy.models.HyObject]
+    (defn __init__ [self label obj]
+      (setv self.label  label
+            self.obj  obj))
+    (defn __repr__ [self]
+      (.format "#{}={}" self.label (hy-repr self.obj))))  
+  
 
   (defclass Nil/cl
     []
@@ -70,16 +115,14 @@ be nested in `cons`es, e.g.
                                  nil/cl
                                  )))
               (cond
-                [(instance? Nil/cl cdr-part)
-                 `(~car-part)]
-                [(instance? hy.models.HyExpression cdr-part)
-                 `(~car-part ~@cdr-part)]
+                [(instance? Nil/cl cdr-part) `(~car-part)]
+                [(instance? hy.models.HyExpression cdr-part) `(~car-part ~@cdr-part)]
                 [(tuple? cdr-part)
-                 (tuple (+ [car-part] (list cdr-part)))]
+                 ((type cdr-part) (tuple (+ [car-part] (list cdr-part))))]
                 [(list? cdr-part)
                  ;; Try to preserve the exact type of list
                  ;; (e.g. in case it's actually a HyList).
-                 (+ ((type cdr-part) [car-part]) cdr-part)]
+                 ((type cdr-part) (+ ((type cdr-part) [car-part]) cdr-part))]
                 [True
                  (do
                    (setv instance (.--new-- (super ConsPair cls) cls))
@@ -117,6 +160,8 @@ be nested in `cons`es, e.g.
   ;; A synonym for ConsPair
   (setv cons ConsPair)
 
+  
+  
   ;; (defun car (ls)
   ;;   (first ls))
 
@@ -153,8 +198,9 @@ be nested in `cons`es, e.g.
     ;;     True
     ;;     False))
     )
-  (defn list/cl   [&rest args] `(~@args))
-  (defn vector/cl [&rest args] (list args))
+  (defn list/cl    [&rest args] `(~@args))
+  ;;(defn vector/cl  [&rest args] (hyclvector (list args)))
+  (defn vector/cl  [&rest args] (list args))
 
   (setv nan numpy.nan
         NAN numpy.nan)
@@ -163,7 +209,17 @@ be nested in `cons`es, e.g.
   (defn atom/cl [x] (not (cons? x)))
 
   (defn eq     [x y]  (is x y))
-  (defn eql    [x y]  (is x y))
+  (defn eql    [x y]
+    (if
+      (or
+        (instance? int x)
+        (instance? int y)
+        (instance? float x)
+        (instance? float y)
+        )
+        (= x y) 
+        (is x y)
+    ))
   (defn equal  [x y]  (= x y))  
   ;;(defn equals [x y]  (= x y))
   (defn equalp [x y]  (= x y))
@@ -253,7 +309,10 @@ be nested in `cons`es, e.g.
 
   (defn declare/cl   [&rest args]  )
   (defn ignorable/cl [&rest args]  )
+  
+  (defn dummy-fn/cl [&rest args]  )
 
+  
   (defn sb-c::check-ds-list [&rest args] (first args))
 
   (defn error/cl [&optional msg] 
@@ -278,8 +337,14 @@ be nested in `cons`es, e.g.
 ;;        (setv ~@(get args (slice -2 None)))
 ;;        ~(get args -2)))
 ;; (+ 1 1)
+
 (defmacro typep [obj objtype]
   `(is (type ~obj) ~objtype))
+(defmacro typep/cl [obj objtype]
+  `(is (type ~obj) ~(eval objtype)))
+
+(defmacro slot-value/cl [obj slot]
+  `(getattr ~obj (str ~slot)))
 
 ;;   ;; todo: &optional cannnot accept () form. (now only stupid [])
 ;;   (defmacro defun (name lambda-list doc &rest body)
@@ -528,14 +593,25 @@ be nested in `cons`es, e.g.
 
 
 
-(defmacro return-from [exi val] `(return ~val))
+;;(defmacro return-from [exi val] `(return ~val))
+;; (defmacro block [exi &rest body]
+;;   `(do
+;;      (defn ~exi [] ~@body)
+;;      (~exi)     )  )
 
-(defmacro block [exi &rest body]
+(defmacro block [return_name &rest body]
+  ;;(setv return-name (gensym 'blockname))
+  (setv e (gensym 'e))
   `(do
-     (defn ~exi [] ~@body)
-     (~exi)
-     )
-  )
+     (defclass ~return_name [Exception]
+       (defn __init__ [self ret]:
+         (setv self.return_value ret)))
+     (try
+       ~@body
+       (except [~e ~return_name]
+         (. ~e return_value) ))))
+(defmacro return-from [return_name return_value]
+  `(raise (~return_name ~return_value)))
 
 
 (defn qexp-pickup-variables [code]
