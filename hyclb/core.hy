@@ -300,8 +300,8 @@ be nested in `cons`es, e.g.
 
   (defn values [&rest returns]   (tuple returns))
 
-  (defn assoc/clp [e dic] (if (in e dic) (get dic e) None))
-  (defn assoc/cl  [e dic] (if (in e dic) (get dic e) [])) ;;nil/cl))
+  (defn assoc/clp [e dic] (if (in e dic) (cons e (get dic e)) None))
+  (defn assoc/cl  [e dic] (if (in e dic) (cons e (get dic e)) nil/cl )  )
   ;; (assoc/cl 'x {'x 10 'y 20})
 
   (defn svref [v i] (get v i))
@@ -322,9 +322,8 @@ be nested in `cons`es, e.g.
 
 (defmacro! if/clp [o!c x &optional y ]
   `(if (null/cl ~o!c) ~y (if ~o!c ~x ~y)))
-
-(defmacro! if/cl [o!c x &optional [y [] ] ]
-  `(if (null/cl ~o!c) ~y (if ~o!c ~x ~y)))
+(defmacro! if/cl [o!c x &optional [y (,) ] ]
+  `(if (null/cl ~o!c) ~y (if ~o!c ~x ~y) ))
 ;; (defn if/cl [test x &optional [y nil/cl]]
 ;;   (if (null/cl test) y (if test x y)))
 ;;(if/cl [] True )

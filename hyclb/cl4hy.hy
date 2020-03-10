@@ -627,16 +627,18 @@
   (hyclb.core.cons item (get alist item))
 )
 
+;;(clisp.eval_qexpr `(defstruct numpy.ndarray  shape ndim))
 
-(clisp.eval_qexpr `(defstruct numpy.ndarray  shape ndim))
+(defn cl_struct_import_obj [obj]
+  (setv classname  (. (type obj) __name__))
+  (setv modulename (. (type obj) __module__))
+  (setv propnames (dir obj) )
+  (setv clstr (+ "(defstruct " modulename "." classname " " (.join " " propnames) " )" ))
+  (clisp.eval_str clstr)
+  )
 
 
-;; (defn ap::ignore-first [&rest args]
-;;   (if (= (len args)  2)
-;;       (get args 1)
-;;       (cut args 1 None)
-;;   ))
-
+(cl_struct_import_obj (numpy.array [1 2 3 ]))
 
 
 ;; (clisp.eval_qexpr
@@ -750,7 +752,10 @@
       (setv (get element-renames-reverse v) k)))
 
 (setv element-renames-reverse-str (dfor (, k v) (element-renames-reverse.items) [(str k) (str v)]))
-            
+
+
+(defn cl_eval_str  [expr] (clisp.eval_str expr))
+(defn cl_eval_qexpr [expr] (clisp.eval_qexpr expr))
 (defn cl_eval_hy_str [expr]
   (for [(, k v) (element-renames-reverse-str.items)]
     (setv expr (.replace expr k v )))

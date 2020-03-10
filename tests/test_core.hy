@@ -129,15 +129,20 @@
     (nconc (, 'a 'b) (, 'c 'd))
     (, 'a 'b 'c 'd ))
 
-  (eq_
+  (assert-all-equal
+    (nconc nil/cl '(c d))
     (nconc '() '(c d))
     '(c d))
+  
   (eq_
     (nconc []  ['c 'd])
     ['c 'd] )
   (eq_
     (nconc (, ) (, 'c 'd))
     (, 'c 'd ))
+
+ 
+
   )
 
 (defn test-append []
@@ -178,7 +183,7 @@
     (if/cl (,) True )
     (if/cl '() True )
     ;;nil/cl
-    []
+    ;;[]
     )
   (assert-all-equal
     (if/clp nil/cl True )    
@@ -216,12 +221,11 @@
 (defn test-assoc []
   (eq_
     (assoc/cl 'x {'x 10 'y 20})
-    10
+    (cons 'x 10)
     )
   (eq_
     (assoc/cl 'z {'x 10 'y 20})
-    ;;nil/cl
-    []
+    nil/cl
     )
   (eq_
     (assoc/clp 'z {'x 10 'y 20})
@@ -234,9 +238,18 @@
   (eq_
     (mapcan     (fn [x] [(+ x 10) "x"]) [1 2 3 4])
     [11 "x" 12 "x" 13 "x" 14 "x"])
+
+  (eq_
+    (mapcan     (fn [x] `(~(+ x 10) "x") ) '(1 2 3 4))
+    '(11 "x" 12 "x" 13 "x" 14 "x"))
+  
   (eq_
     (mapcan     (fn [x] [(+ x 10) None]) [1 2 3 4])
     [11 None 12 None 13 None 14 None])
+  (eq_
+    (mapcan     (fn [x] `(~(+ x 10) None) )  '(1 2 3 4))
+    '(11 None 12 None 13 None 14 None))
+  
   (eq_
     (mapcan     (fn [x] [(+ x 10) []]) [1 2 3 4])
     [11 [] 12 [] 13 [] 14 [] ])
@@ -244,7 +257,9 @@
     (append/cl [1 []] [3 4 []] )
     [1  [] 3 4  [] ]
     )
-
+  (eq_
+    (mapcan     (fn [x] `(~(+ x 10) nil/cl))  '(1 2 3 4))
+    '(11 nil/cl 12 nil/cl 13 nil/cl 14 nil/cl))
   )
   
 (defn test-mapcar []

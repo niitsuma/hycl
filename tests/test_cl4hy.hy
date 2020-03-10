@@ -26,23 +26,6 @@
     (cl_eval_hy_str "(cons 1 (list/cl 3 4))")
     '(1 3 4))
   
-  (eq_
-    (clisp.readtable.read_str "#(1 2 3)")
-    (cl_eval_hy_str "(vector 1 2 3)")
-    ;;[1 2 3]
-    )
-
-  (eq_
-    (clisp.readtable.read_str "(1 . 2)")
-    (cons 1 2)
-    )
-  
-  (eq_
-    (clisp.readtable.read_str "(1 2 . 3)")
-    (cons 1 (cons 2 3))
-    )
-
-  
   )
 
 (defn test-eval-qexpr []
@@ -229,8 +212,11 @@
     (testom5 { 1 "one"})
     "one")
 
-  (clisp.eval_qexpr `(defstruct numpy.ndarray  shape ndim))
+  ;;(clisp.eval_qexpr `(defstruct numpy.ndarray  shape ndim))
+  (cl_struct_import_obj (numpy.array [1 2 3 ]))
+  
   (defun testom6 (z)
+    ;;(cl_struct_import_obj z)
     (om:match
       z
       ((numpy.ndarray shape ndim ) (list shape ndim )))
