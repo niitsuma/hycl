@@ -8,8 +8,6 @@
 (require  [hyclb.cl4hy [*]])
 
 ;;(import  [hyclb.models [hyclvector hycllist]] )
-
-
 (defn test-eval-str []
   
   ;;(setv clisp (Clisp))
@@ -20,13 +18,14 @@
   
   (eq_
     (clisp.eval_str "(macroexpand '(alpha a b))")
-    '(beta a b)
+    '(BETA A B)
     )
   (eq_
     (cl_eval_hy_str "(cons 1 (list/cl 3 4))")
     '(1 3 4))
   
   )
+
 
 (defn test-eval-qexpr []
   
@@ -42,9 +41,10 @@
     ;;['BETA 'A 'B]
     '(beta a b)
     )
+  
 
   (eq_
-    (cl_eval_hy (alexandria:destructuring-case '(:x 0 1 2)   ((:x x y z) (list x y z))  ((t &rest rest) :else))  )
+    (cl_eval_hy (ALEXANDRIA:DESTRUCTURING-CASE '(:X 0 1 2)   ((:X X Y Z) (LIST X Y Z))  ((T &REST REST) :ELSE))  )
     '(0 1 2))
 
   (eq_
@@ -62,11 +62,6 @@
     '(123 12 3)
     )
 
-  (eq_
-    (q-exp-rename-deep
-      '(list/cl 12 3)
-      element-renames-reverse)
-    '(list 12 3))
 
   (eq_
     (cl_eval_hy '(12 3))
@@ -78,9 +73,9 @@
       )
     "'#(1 2 3)"
     )
-
-  
   )
+
+
 
 (defn test-defuncl []
   (defun testfn (x y)
@@ -237,15 +232,15 @@
   ;;   (numpy.array [1 2 3])
   ;;    )
 
-  (defun testtv1 []
-    (tv:match (list 1 2)
-              ((list _) 1)
-              ((list _ _) 2)
-              ((list _ _ _) 3)
-              ) )
-  (eq_
-    (testtv1)
-    2)
+  ;; (defun testtv1 []
+  ;;   (tv:match (list 1 2)
+  ;;             ((list _) 1)
+  ;;             ((list _ _) 2)
+  ;;             ((list _ _ _) 3)
+  ;;             ) )
+  ;; (eq_
+  ;;   (testtv1)
+  ;;   2)
   
   
   )

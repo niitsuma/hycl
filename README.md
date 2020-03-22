@@ -76,21 +76,6 @@ defun macro usage
 (testom6 (numpy.array [1 2 3]))
 ==>    '( (, 3) 1)
 
-;; you can use tribia instead optima. but not recomennd  
-;(clisp.eval_qexpr '(rename-package 'trivia 'tv) )  ;pre-loaded inside hyclb
-;(clisp.eval_qexpr '(rename-package 'trivia.level1 'tv1) )
-;(clisp.eval_qexpr '(rename-package 'trivia.level1.impl 'tv1i) )
-;(clisp.eval_qexpr '(rename-package 'trivia.skip 'tvskip) )
-;(clisp.eval_qexpr '(rename-package 'trivia.balland2006 'tvballand2006) )
-
-(defun testtv1 []
-    (tv:match (list 1 2)
-              ((list _) 1)
-              ((list _ _) 2)
-              ((list _ _ _) 3)
-              ) )
-(testtv1)
-==> 2
 ```
 
 ### cl-compat hy functions in hyclb.core 

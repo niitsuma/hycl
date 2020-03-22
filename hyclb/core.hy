@@ -89,7 +89,9 @@
   
 
   ;; take ConsPair from ohttps://github.com/algernon/adderall/blob/master/adderall/internal.hy
-  (defclass ConsPair [Iterable]
+  ;;(defclass ConsPair [Iterable]
+  (defclass ConsPair []
+    
     "Construct a cons list.
 
 A Python `list` is returned when the cdr is a `list` or `None`; otherwise, a
@@ -135,12 +137,12 @@ be nested in `cons`es, e.g.
       (and (= (type self) (type other))
            (= self.car other.car)
            (= self.cdr other.cdr)))
-    (defn --iter-- [self]
-      (yield self.car)
-      (if (coll? self.cdr) ;;(list? self.cdr)
-          (for [x self.cdr] (yield x))
-          (raise StopIteration))
-      )
+    ;; (defn --iter-- [self]
+    ;;   (yield self.car)
+    ;;   (if (coll? self.cdr) ;;(list? self.cdr)
+    ;;       (for [x self.cdr] (yield x))
+    ;;       (raise StopIteration))
+    ;;   )
     (defn --repr-- [self]
       ;;(.format "({} . {})" (hy-repr self.car) (hy-repr self.cdr))
       (.format "(cons {} {})" (hy-repr self.car) (hy-repr self.cdr))
@@ -305,13 +307,6 @@ be nested in `cons`es, e.g.
   ;; (assoc/cl 'x {'x 10 'y 20})
 
   (defn svref [v i] (get v i))
-
-
-  (defn declare/cl   [&rest args]  )
-  (defn ignorable/cl [&rest args]  )
-  
-  (defn dummy-fn/cl [&rest args]  )
-
   
   (defn sb-c::check-ds-list [&rest args] (first args))
 
@@ -319,6 +314,11 @@ be nested in `cons`es, e.g.
     (lif msg (raise (ValueError msg)) (raise ValueError)))
 
   )
+
+
+(defmacro declare/cl   [&rest args]  )
+(defmacro ignorable/cl [&rest args]  )
+(defmacro dummy-fn/cl [&rest args]  )
 
 (defmacro! if/clp [o!c x &optional y ]
   `(if (null/cl ~o!c) ~y (if ~o!c ~x ~y)))
