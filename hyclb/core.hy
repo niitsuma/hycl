@@ -49,7 +49,7 @@
 
 
 (eval-and-compile 
-  (import [collections.abc [Iterable]])
+  ;;(import [collections.abc [Iterable]])
   (import  functools)
   (import numpy)
 

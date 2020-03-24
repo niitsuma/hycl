@@ -7,6 +7,11 @@
 (import   [hyclb.cl4hy [*]])
 (require  [hyclb.cl4hy [*]])
 
+(defn assert-all-equal [&rest tests]
+  (reduce (fn [x y] (assert-equal x y) y)
+          tests)
+  None)
+
 ;;(import  [hyclb.models [hyclvector hycllist]] )
 (defn test-eval-str []
   
@@ -20,9 +25,9 @@
     (clisp.eval_str "(macroexpand '(alpha a b))")
     '(BETA A B)
     )
-  (eq_
-    (cl_eval_hy_str "(cons 1 (list/cl 3 4))")
-    '(1 3 4))
+  ;; (eq_
+  ;;   (cl_eval_hy_str "(cons 1 (list/cl 3 4))")
+  ;;   '(1 3 4))
   
   )
 
@@ -35,17 +40,22 @@
     7)
   
   (clisp.eval_qexpr '(defmacro alpha (x y) `(beta ,x ,y)) )
-  
-  (eq_
+  (assert-all-equal
     (clisp.eval_qexpr '(macroexpand '(alpha a b)))
-    ;;['BETA 'A 'B]
-    '(beta a b)
-    )
+    (clisp.eval_qexpr '(MACROEXPAND '(ALPHA A B)))
+    (cl_eval_hy_qexpr '(MACROEXPAND '(ALPHA A B)))
+    '(BETA A B)     )
   
-
+  (cl_eval_hy_qexpr '(defmacro alpha (x y) `(beta ,x ,y)) )
   (eq_
-    (cl_eval_hy (ALEXANDRIA:DESTRUCTURING-CASE '(:X 0 1 2)   ((:X X Y Z) (LIST X Y Z))  ((T &REST REST) :ELSE))  )
-    '(0 1 2))
+    (cl_eval_hy_qexpr '(macroexpand '(alpha a b)))
+    '(beta a b)     )
+  
+  (assert-all-equal
+    (clisp.eval_qexpr '(ALEXANDRIA:DESTRUCTURING-CASE '(:X 0 1 2) ((:X X Y Z) (LIST X Y Z)) ((T &REST REST) :ELSE)) )
+    (clisp.eval_qexpr '(alexandria:destructuring-case '(:x 0 1 2) ((:x x y z) (list x y z)) ((t &rest rest) :else)) )
+    (cl_eval_hy_qexpr '(alexandria:destructuring-case '(:x 0 1 2) ((:x x y z) (list x y z)) ((t &rest rest) :else)) )
+    '(0 1 2)     )
 
   (eq_
     (cl_eval_hy (do
@@ -57,8 +67,12 @@
   ;;  (cl_eval_hy (vector/cl 1 2 3))
   ;;  [1 2 3])
 
-  (eq_
-    (cl_eval_hy (cons 123 (list/cl 12 3)))
+  (assert-all-equal
+    (cl_eval_hy (cons 123 (list/cl 12 3)))    
+    (cl_eval_hy (cons 123 (list    12 3)))
+    (cl_eval_hy (CONS 123 (LIST    12 3)))
+    (cl_eval_hy (CONS 123 (list    12 3)))
+    (cl_eval_hy (cons 123 (LIST    12 3)))        
     '(123 12 3)
     )
 
@@ -222,15 +236,17 @@
     )
   
 
-  ;; (defun testom (u)
-  ;;   (ome:let-match
-  ;;     (((list x y z) u))
-  ;;     (numpy.array [x y z])
-  ;;     ))
-  ;; (eq_
-  ;;   (testom '(1 2 3))
-  ;;   (numpy.array [1 2 3])
-  ;;    )
+  (defun testom7 (u)
+    (ome:let-match
+      (((list x y z) u))
+      (numpy.array [x y z])
+      ))
+  (eq_
+    True
+    (all
+      (= (testom7 '(1 2 3))
+         (numpy.array [1 2 3]) )
+      ))
 
   ;; (defun testtv1 []
   ;;   (tv:match (list 1 2)

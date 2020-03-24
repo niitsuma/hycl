@@ -33,12 +33,12 @@
     (cons 1 (cons 2 3))
     )
 
-  (eq_
-    (from-pipe-symbol-str "c|aa|bb")
-    "caabb")
-  (eq_
-    (from-pipe-symbol-str "CC|aAa|BB")
-    "ccaAabb")
+  ;; (eq_
+  ;;   (from-pipe-symbol-str "c|aa|bb")
+  ;;   "caabb")
+  ;; (eq_
+  ;;   (from-pipe-symbol-str "CC|aAa|BB")
+  ;;   "ccaAabb")
   
   ;; (eq_
   ;;   (maybe-pipe-symbol-str "AVVAA")
@@ -86,7 +86,7 @@
     (hy.models.HySymbol "|aXa|?"))
 
   (eq_
-    (clisp.eval_qexpr '(list 'aa 'AA 'aBCd))
+    (cl_eval_hy_qexpr '(list 'aa 'AA 'aBCd))
     '(aa AA aBCd) )
 
   (eq_

@@ -12,7 +12,7 @@ common-lisp interface and common-lisp-like functions for hylang
 $ pip install hyclb
 ```
 
-## Example
+## Usage
 ### basic usage
 ```hy
 (import   [hyclb.core [*]])
@@ -39,8 +39,8 @@ $ pip install hyclb
 ```hy
 (defmacro defun [name arg &rest code]
  `(defn ~name [~@arg]
-   macroexpand-all code in SBCL : (clisp.eval_qexpr `(macroexpand-all ~code)) 
-   the expanded code executed using cl-compat hy functions. 
+   macroexpand-all "code" in SBCL : (clisp.eval_qexpr `(macroexpand-all ~code)) 
+   the expanded "code" executed using cl-compat functions on hy. 
   ))
 ```
 
@@ -100,7 +100,7 @@ Some cl-compat hy function names which conflict with python names are renamed `f
 ```
 
 
-### naming rule
+### Naming rule
 
 Some function deals None as nil.
 
@@ -116,7 +116,7 @@ None
 ```
 
 
-### other examples
+### Other examples
 
 ```hy
 (dbind
