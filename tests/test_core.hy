@@ -114,6 +114,14 @@
   (eq_
     (nreverse '(1 2 3))
     '(3 2 1))
+
+  (eq_
+    (getf  '(c 1 2 0 a b) 'k)
+    nil/cl)
+  (eq_
+    (getf  '(c 1 2 0 a b) 'a)
+    'b)
+  
   )
 
 (defn test-nconc []

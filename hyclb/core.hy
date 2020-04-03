@@ -15,7 +15,9 @@
 
 ;; (import [cons [cons :as  cons/py car :as car/py cdr :as cdr/py]]) ;;;can not apply on lisp
 ;; (import [cons.core [ConsPair MaybeCons ConsNull]])
-(import [gasync.core [q-exp-fn?]])
+;;(import [gasync.core [q-exp-fn?]])
+(defn q-exp-fn-args?    [p]   (and (coll? p) (> (len p) 1)))
+(defn q-exp-fn?         [p f] (and (q-exp-fn-args? p) (= (first p) f)))
 (defn q-exp-fn0?        [p f] (and (coll? p) (= (first p) f)))
 
 (import  [hyclb.models [hyclvector hycllist]] )
@@ -308,17 +310,32 @@ be nested in `cons`es, e.g.
 
   (defn svref [v i] (get v i))
   
+  (defn getf  [plist item ]
+    (if (in item plist)
+        (get plist (+ 1 (.index plist item)))
+        nil/cl))
+  
+  ;; (getf  '(c 1 2 0 a b) 'k)
+  
+  ;; (.index '(c 1 2 0 a b) 'k)
+
+  
+  
   (defn sb-c::check-ds-list [&rest args] (first args))
 
   (defn error/cl [&optional msg] 
     (lif msg (raise (ValueError msg)) (raise ValueError)))
 
+  (defn the/cl [t v] v )
+    
   )
 
 
 (defmacro declare/cl   [&rest args]  )
 (defmacro ignorable/cl [&rest args]  )
 (defmacro dummy-fn/cl [&rest args]  )
+
+    
 
 (defmacro! if/clp [o!c x &optional y ]
   `(if (null/cl ~o!c) ~y (if ~o!c ~x ~y)))
@@ -341,6 +358,27 @@ be nested in `cons`es, e.g.
   `(is (type ~obj) ~objtype))
 (defmacro typep/cl [obj objtype]
   `(is (type ~obj) ~(eval objtype)))
+
+(defmacro setq [&rest args]
+  `(do
+     (setv ~@args)
+     (last ~args))
+   )
+
+;;(defn rplaca [l e]  `(e ~@(cut l 1 None)))
+;;  (defn rplaca [l e]  (cons e (cdr l)))
+  
+;; (defmacro rplacd [l e]
+;;   `(setv ~l (cons (car ~l) ~e))
+;;   )
+
+;; (setv hd '(a b))
+;; (setv xx hd)
+
+;; (setv xxx '(a b c d))
+;; (rplacd xxx '(x y))
+;; xxx
+
 
 (defmacro slot-value/cl [obj slot]
   `(getattr ~obj (str ~slot)))
@@ -616,7 +654,8 @@ be nested in `cons`es, e.g.
 (defn qexp-pickup-variables [code]
   (setv varis [])
   (defn picker [p]
-    (if (q-exp-fn? p 'setv)
+    (if (or (q-exp-fn? p 'setv)
+            (q-exp-fn? p 'setq))
         (for [(, i e)  (enumerate (cut p 1 None))]
           (if (= (% i 2) 0)
               (varis.append e))))

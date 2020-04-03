@@ -247,7 +247,7 @@
       (= (testom7 '(1 2 3))
          (numpy.array [1 2 3]) )
       ))
-
+  
   ;; (defun testtv1 []
   ;;   (tv:match (list 1 2)
   ;;             ((list _) 1)
@@ -258,5 +258,24 @@
   ;;   (testtv1)
   ;;   2)
   
+  )
+
+
+
+(defn test-optima2 []
+  (defun clmywalk (lis)
+    (om:match
+      lis
+      ((list 6 '(7 8) _) True)
+      ((null _)   nil)
+      ((list)     nil)
+      ((cons a b)
+        (or
+          (clmywalk a)
+          (clmywalk b)))))
+  (eq_
+    True
+    (clmywalk '(1 2 3 4 (5 6 (7 8) 9) 0) )
+    )
   
   )

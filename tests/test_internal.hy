@@ -17,11 +17,12 @@
   None)
 
 (defn test-internal []
-  (eq_
-    (clisp.readtable.read_str "#(1 2 3)")
-    (cl_eval_hy_str "(vector 1 2 3)")
-    ;;[1 2 3]
-    )
+
+  ;; (eq_
+  ;;   (clisp.readtable.read_str "#(1 2 3)")
+  ;;   (cl_eval_hy_str "(vector 1 2 3)")
+  ;;   ;;[1 2 3]
+  ;;   )
 
   (eq_
     (clisp.readtable.read_str "(1 . 2)")

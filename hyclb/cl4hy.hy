@@ -34,7 +34,8 @@
           vector/cl
           list/cl
           SharpsignSharpsign
-          SharpsignEquals          
+          SharpsignEquals
+          nil/cl
           ]])
 
 
@@ -181,7 +182,7 @@
 
 
 ;;;;https://stackoverflow.com/questions/39560353/common-lisp-keyword-list
-;;;;cl* (let (result)    (do-external-symbols (s :common-lisp)     (push s result))   (sort result #'string<))
+;;;; (let (result)    (do-external-symbols (s :common-lisp)     (push s result))   (sort result #'string<))
 (setv all-cl-word
       "
  &ALLOW-OTHER-KEYS &AUX &BODY &ENVIRONMENT &KEY &OPTIONAL &REST &WHOLE * ** ***
@@ -377,7 +378,7 @@
 (setv cl-custom-keywords
       [
 
-       ;; ;;"quote" "unquote"
+       ;;"quote" "unquote" "quasiquote"
        "&rest"
        
        ;; "cons" "car" "cdr" "consp"
@@ -401,9 +402,15 @@
        ;; "go"
        ;; "symbol-macrolet"
        
-       "ap:it"
-       "ap:alet"       
+       "ap:it"  "ap:alet"   "ap:slet"
+       "ap:aand" "ap:sor"
+       "ap:aif"  "ap:sif"
+       "ap:awhen" "ap:swhen" "ap:sunless"
+       "ap:acase" "ap:scase" "ap:scase"  "ap:aecase"   "ap:secase"  "ap:accase"  "ap:sccase"
+       "ap:atypecase"  "ap:stypecase"  "ap:aetypecase"  "ap:setypecase"
+       "ap:actypecase"  "ap:sctypecase"  "ap:acond"  "ap:scond"  "ap:aprog"
        "ap:ignore-first"
+       
        "sb-c::check-ds-list"
        
        "macroexpand-dammit:macroexpand-dammit"
@@ -452,6 +459,7 @@
        'let 'let/cl
        'list   'list/cl 
        'vector 'vector/cl
+       'the 'the/cl
        ;;', '~
        'progn  'do
        'locally 'do
@@ -470,26 +478,32 @@
        'declare   'declare/cl
        'ignorable 'ignorable/cl
        'setf 'setv       
-       'setq 'setv
+       ;;'setq 'setv
        'defvar 'setv
        'type  'dummy-fn/cl
        
-       'QUOTE 'quote
+       ;'QUOTE   'quote
+       ;'UNQUOTE   'unquote
+       ;'QUASIQUOTE   'quasiquote
+       ;'UNQUOTE-SPLICE  'unquote-splice
        }
       )
-
-(.update cl2hy-s-dic
-         (dfor k cl2hy-custom-s-dic
-               [(hy.models.HySymbol (.upper (str k)))
-                (get cl2hy-custom-s-dic k)]))
-
-
 (.update hy2cl-s-dic
          (dfor k cl2hy-custom-s-dic
                [
                 (get cl2hy-custom-s-dic k)
                 (hy.models.HySymbol (.upper (str k)))
                 ]))
+
+(.update cl2hy-s-dic
+         (dfor k cl2hy-custom-s-dic
+               [(hy.models.HySymbol (.upper (str k)))
+                (get cl2hy-custom-s-dic k)]))
+
+(.update cl2hy-s-dic
+         (dfor k hy-repr-escape-words  
+               [(hy.models.HySymbol (.upper k))
+                (hy.models.HySymbol k) ]               ))
 
 
 ;; (setv
@@ -512,40 +526,12 @@
              (hy.models.HyKeyword (.upper k))             
              ]))
 
-
-
-(defn q-element-rename [p &optional [cl2hy-s-dic cl2hy-s-dic]]
-  ;;(print "q-element-cl-replace" p (isinstance p hyclb.core.ConsPair))
-  (if (isinstance p hyclb.core.ConsPair)  p
-      (if (symbol? p)
-          (if (in p cl2hy-s-dic)
-              (get cl2hy-s-dic p)
-              ;;(hy.models.HySymbol  (.replace  (str p) ":" ".") )
-              p
-              )
-          p)))
-
-(defn cl2hy-symbol-deep [p &optional [cl2hy-s-dic cl2hy-s-dic]];; &optional [clisp clisp]]
-  ;;(print "q-exp-cl-rename-deep" (hy-repr p))
-  (postwalk (fn [e] (q-element-rename e cl2hy-s-dic)) p) )
-
-
-;; (setv hy2cl-s-dic
-;;       {
-;;        'list/cl 'list
-;;        'vector/cl 'vector       
-;;        'do 'progn
-;;        }
-;;       )
-
-
-      
-(for [(, k v) (cl2hy-s-dic.items)]
-  (if (not (in v hy2cl-s-dic))
-      (setv (get hy2cl-s-dic v)
-            k)))
-(for [(, k v) (hy2cl-s-dic.items)]
-  (setv (get hy2cl-s-dic k) (hy.models.HySymbol (.upper (str v)))))
+;; (for [(, k v) (cl2hy-s-dic.items)]
+;;   (if (not (in v hy2cl-s-dic))
+;;       (setv (get hy2cl-s-dic v)
+;;             k)))
+;; (for [(, k v) (hy2cl-s-dic.items)]
+;;   (setv (get hy2cl-s-dic k) (hy.models.HySymbol (.upper (str v)))))
 
 ;; (setv cl-lowercase-keywords
 ;;       [
@@ -584,7 +570,33 @@
 ;;                [(hy.models.HySymbol k)
 ;;                 (hy.models.HySymbol (.upper k))  ]))
 
-(setv hy2cl-s-dic-str (dfor (, k v) (hy2cl-s-dic.items) [(str k) (str v)]))
+
+
+;; (defn q-element-rename [p &optional [cl2hy-s-dic cl2hy-s-dic]]
+;;   ;;(print "q-element-cl-replace" p (isinstance p hyclb.core.ConsPair))
+;;   (if (isinstance p hyclb.core.ConsPair)  p
+;;       (if (symbol? p)
+;;           (if (in p cl2hy-s-dic)
+;;               (get cl2hy-s-dic p)
+;;               ;;(hy.models.HySymbol  (.replace  (str p) ":" ".") )
+;;               p
+;;               )
+;;           p)))
+
+(defn cl2hy-symbol-deep [qexpr &optional [cl2hy-s-dic cl2hy-s-dic]];; &optional [clisp clisp]]
+  ;;(print "q-exp-cl-rename-deep" (hy-repr p))
+  (postwalk
+    (fn [p]
+      (if (isinstance p hyclb.core.ConsPair)  p
+          (if (symbol? p)
+              (if (in p cl2hy-s-dic)
+                  (get cl2hy-s-dic p)
+                  p)
+              (if (and (keyword? p) (in p cl2hy-k-dic ))
+                  (get cl2hy-k-dic p)
+                  p))))
+    qexpr)
+  )
 
 (defn hy2cl-symbol-deep [qexpr]
   (postwalk
@@ -597,14 +609,14 @@
     qexpr))
 
 
-(defn from-pipe-symbol-str [st]
-  (setv sts (st.split "|"))
-  (.join
-    ""
-    (lfor (, k s) (enumerate sts)
-          (if (and (= 1 (% k 2) ) (< k (- (len sts) 1)))
-              s
-              (.lower s)))))
+;; (defn from-pipe-symbol-str [st]
+;;   (setv sts (st.split "|"))
+;;   (.join
+;;     ""
+;;     (lfor (, k s) (enumerate sts)
+;;           (if (and (= 1 (% k 2) ) (< k (- (len sts) 1)))
+;;               s
+;;               (.lower s)))))
 
 ;;(defn maybe-pipe-symbol-str [st] st)
 (defn maybe-pipe-symbol-str [st &optional [escape False]]
@@ -1087,7 +1099,11 @@
 (clisp.eval_str "(ql:quickload \"anaphora\")")
 
 (clisp.eval_str "(ql:quickload \"optima\")")
-(clisp.eval_str "(ql:quickload \"trivia\")")
+
+
+;;(clisp.eval_str "(ql:quickload \"iterate\")" )
+
+;;(clisp.eval_str "(ql:quickload \"trivia\")")
 
 (clisp.eval_str "(ql:quickload \"sxql\")")
 (clisp.eval_str "(ql:quickload \"jsown\")")
@@ -1104,15 +1120,18 @@
 (clisp.eval_str "(rename-package 'optima.core 'omc)")
 (clisp.eval_str "(rename-package 'optima.extra 'ome)")
 
-(clisp.eval_str "(rename-package 'trivia 'tv)")
-(clisp.eval_str "(rename-package 'trivia.level1 'tv1)")
-(clisp.eval_str "(rename-package 'trivia.level1.impl 'tv1i)")
-(clisp.eval_str "(rename-package 'trivia.skip 'tvskip)")
+;; (clisp.eval_str "(rename-package 'trivia 'tv)")
+;; (clisp.eval_str "(rename-package 'trivia.level1 'tv1)")
+;; (clisp.eval_str "(rename-package 'trivia.level1.impl 'tv1i)")
+;; (clisp.eval_str "(rename-package 'trivia.skip 'tvskip)")
 ;;(clisp.eval_str "(rename-package 'trivia.balland2006 'tvballand2006")  ;;;error 
+
 
 
 ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; (defmacro SB-KERNEL:%RPLACD [&rest args]
+;;   `(rplacd ~@args))
 
 (defn OMC:%ASSOC [item alist &optional [test hyclb.core.eql]]
   ;;"Safe ASSOC."
@@ -1125,7 +1144,18 @@
   ;;       (return cons)))
   ;;   (setq alist (cdr alist))))
   (hyclb.core.cons item (get alist item))
-)
+  )
+
+(defn OMC:%EQUAL [a b] (= a b))
+
+(defn OMC:%SVREF [simple-vector index]  (get simple-vector index))
+
+(defn OMC:%GET-PROPERTY [item plist]
+  (if (in item plist)
+      (do
+        (setv i (.index plist item))
+        (cut plist (+ 1 i) None))
+      nil/cl))
 
 ;;(clisp.eval_qexpr `(defstruct numpy.ndarray  shape ndim))
 
@@ -1156,41 +1186,18 @@
   (clisp.eval_qexpr qexpr)
   )
 
-(defn cl_eval_hy_str [expr]
-  (for [(, k v) (hy2cl-s-dic-str.items)]
-    (setv expr (.replace expr k v )))
-  (clisp.eval_str expr))
+;;(setv hy2cl-s-dic-str (dfor (, k v) (hy2cl-s-dic.items) [(str k) (str v)]))
+
+;; (defn cl_eval_hy_str [expr]
+;;   (for [(, k v) (hy2cl-s-dic-str.items)]
+;;     (setv expr (.replace expr k v )))
+;;   (clisp.eval_str expr))
 
 
 
 (defmacro cl_eval_hy [expr]
-  ;;`~(cl_eval_hy_str (hy-repr (cl2hy-symbol-deep expr hy2cl-s-dic))))
-  ;;`(cl_eval_hy_str (hy-repr (cl2hy-symbol-deep ~expr hy2cl-s-dic))))
-  ;; (setv expr
-  ;;       (postwalk
-  ;;         (fn [p]
-  ;;           (if (and (symbol? p) (in p hy2cl-s-dic))
-  ;;               (get hy2cl-s-dic p)
-  ;;               p))
-  ;;         expr))
-  ;;(print (hy-repr expr))
-  ;;;;(setv exs (cut (hy-repr expr) 1 None))
-  ;;;;(clisp.eval_str exs)
   (setv ret (cl_eval_hy_qexpr expr))
-  ;;(print ret)
-  ;;(print (hy-repr ret))
-  ;;(setv ret (cl2hy-symbol-deep ret)) 
-  ;;(print ret)
-  ;;(print (hy-repr ret))
-  ;;ret
   `'~ret
-  ;; `'~(cl_eval_hy_qexpr
-  ;;      (postwalk
-  ;;        (fn [p]
-  ;;          (if (and (symbol? p) (in p hy2cl-s-dic))
-  ;;              (get hy2cl-s-dic p)
-  ;;               p))
-  ;;         expr))
   )
 
 
@@ -1321,13 +1328,14 @@
   `(defn ~name [~@arg]
      ~@(lfor p code
              (do
-               ;(print "p0" (hy-repr p))
+               ;;(print "p0" (hy-repr p))
                ;;(setv p (hy2cl-symbol-deep p))
                ;;(print "p1" (hy-repr p))
+               ;;(print "ex1" (hy-repr (clisp.eval_qexpr `(MACROEXPAND-DAMMIT:MACROEXPAND-DAMMIT '~p))))
                (setv ret1 (q-exp-clmc-rename-deep4 p) )
-               ;(print "ret1" (hy-repr ret1))
-               (setv ret2 (cl2hy-symbol-deep ret1)) 
-               ;(print "ret2" (hy-repr ret2))
+               ;;(print "ret1" (hy-repr ret1))
+               (setv ret2 (cl2hy-symbol-deep ret1))
+               ;;(print "ret2" (hy-repr ret2))
                ret2
                ))))
 
