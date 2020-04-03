@@ -1196,9 +1196,10 @@
 
 
 (defmacro cl_eval_hy [expr]
-  (setv ret (cl_eval_hy_qexpr expr))
-  `'~ret
-  )
+  ;; (setv ret (cl_eval_hy_qexpr expr))
+  ;; `'~ret
+  `(cl_eval_hy_qexpr '~expr))
+  
 
 
 
@@ -1316,7 +1317,11 @@
 (defn q-exp-clmc-rename-deep4 [p &optional [non-cl-macro-expand-symbols non-cl-macro-expand-symbols] ]
   (cl_eval_hy_qexpr `(MACROEXPAND-DAMMIT:MACROEXPAND-DAMMIT '~p)))
   
-
+(defmacro defmacro/cl [name arg &rest code]
+  (setv p `(defmacro ~name ~arg ~@code))
+  ;;(print (hy-repr p))
+  `(cl_eval_hy ~p)
+  )
 
 ;; (defmacro labels [name arg &rest code]
 ;;   `(defn ~name [~@arg]

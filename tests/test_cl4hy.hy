@@ -46,10 +46,26 @@
     (cl_eval_hy_qexpr '(MACROEXPAND '(ALPHA A B)))
     '(BETA A B)     )
   
-  (cl_eval_hy_qexpr '(defmacro alpha (x y) `(beta ,x ,y)) )
-  (eq_
+
+  (cl_eval_hy_qexpr  '(defmacro alpha (x y) `(beta ,x ,y)) )
+  (assert-all-equal
     (cl_eval_hy_qexpr '(macroexpand '(alpha a b)))
+    (cl_eval_hy        (macroexpand '(alpha a b)))
     '(beta a b)     )
+  
+  (defmacro/cl alpha1 (x y) `(beta1 ,x ,y))
+  (assert-all-equal
+    (cl_eval_hy_qexpr '(macroexpand '(alpha1 a b)))
+    (cl_eval_hy        (macroexpand '(alpha1 a b)))
+    '(beta1 a b)  )
+
+  (defmacro/cl ALPHA1 (x y) `(BETA1 ,x ,y))
+  (assert-all-equal
+    (cl_eval_hy_qexpr '(macroexpand '(ALPHA1 A B)))
+    (cl_eval_hy        (macroexpand '(ALPHA1 A B)))
+    (clisp.eval_qexpr '(macroexpand '(alpha1 a b)))
+    '(BETA1 A B)  )
+
   
   (assert-all-equal
     (clisp.eval_qexpr '(ALEXANDRIA:DESTRUCTURING-CASE '(:X 0 1 2) ((:X X Y Z) (LIST X Y Z)) ((T &REST REST) :ELSE)) )
@@ -63,9 +79,7 @@
                   (+ 1 x)))
     21)
   
-  ;; (eq_
-  ;;  (cl_eval_hy (vector/cl 1 2 3))
-  ;;  [1 2 3])
+
 
   (assert-all-equal
     (cl_eval_hy (cons 123 (list/cl 12 3)))    
@@ -85,8 +99,13 @@
     (hy-repr  
       (cl_eval_hy (vector/cl 1 2 3))
       )
-    "'#(1 2 3)"
+    "#(1 2 3)"
     )
+  
+  (eq_
+   (cl_eval_hy (vector/cl 1 2 3))
+   [1 2 3])
+  
   )
 
 
