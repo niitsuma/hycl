@@ -27,7 +27,7 @@ setup(
         'Programming Language :: Python :: 3.6',
     ],
     keywords='hy lisp common-lisp',
-    install_requires=['cl4py'],#'gasync'], #'hy>=0.15' was removed because gentoo linux hy package bug
+    install_requires=['cl4py','gasync'], #'hy>=0.15' was removed because gentoo linux hy package bug
     packages=['hyclb'],
     package_data={'hyclb': ['*.hy','*.lisp'],},
     test_suite='nose.collector',

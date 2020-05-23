@@ -7,10 +7,18 @@
 common-lisp interface and common-lisp-like functions for hylang
 
 ## Installation
-
+### Linux
 ```shell
 $ pip install hyclb
 ```
+### Windows
+1. install [sbcl windows binary](https://sourceforge.net/projects/sbcl/files/sbcl/2.0.0/sbcl-2.0.0-x86-64-windows-binary.msi/download)
+2. open command prompt
+3. bitsadmin /transfer download https://beta.quicklisp.org/quicklisp.lisp %CD%\quicklisp.lisp 
+4. sbcl --load quicklisp.lisp 
+5. (quicklisp-quickstart:install)
+6. (quit)
+7. pip install hyclb
 
 ## Usage
 ### basic usage
