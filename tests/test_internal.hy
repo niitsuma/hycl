@@ -90,6 +90,14 @@
     (cl_eval_hy_qexpr '(list 'aa 'AA 'aBCd))
     '(aa AA aBCd) )
 
+  ;; (hy2cl-symbol-deep
+  ;;   '(aaa bbb)
+  ;;   )
+
+  ;; (cl2hy-symbol-deep
+  ;;   '(aaa bbb))
+
+  
   (eq_
     (hy2cl-symbol-deep
       '(list/cl 12 3)

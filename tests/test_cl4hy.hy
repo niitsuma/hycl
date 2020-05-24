@@ -1,16 +1,15 @@
 (import [nose.tools [eq_  assert-equal assert-not-equal]])
-
-
-(import  [hyclb.core [*]])
-(require [hyclb.core [*]])
-
-(import   [hyclb.cl4hy [*]])
-(require  [hyclb.cl4hy [*]])
-
 (defn assert-all-equal [&rest tests]
   (reduce (fn [x y] (assert-equal x y) y)
           tests)
   None)
+
+(eval-and-compile
+  (import  [hyclb.core [*]])
+  (require [hyclb.core [*]])
+  (import   [hyclb.cl4hy [*]])
+  (require  [hyclb.cl4hy [*]])
+)
 
 ;;(import  [hyclb.models [hyclvector hycllist]] )
 (defn test-eval-str []

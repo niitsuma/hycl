@@ -9,3 +9,5 @@ from .test_cl4hy_load import *
 
 from .test_readme   import *
 from .test_internal import *
+
+from .test_clmacro import *

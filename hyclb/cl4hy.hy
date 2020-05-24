@@ -177,7 +177,9 @@
     (finalize result))
 
 
-(setv hy-repr-escape-words ["quasiquote" "unquote-splice" "unquote" "quote" ])
+(setv hy-repr-escape-words ["quasiquote" "unquote-splice" "unquote" "quote"
+                            "&optional"
+                            ])
 (setv hy-repr-escape-symbols (lfor w hy-repr-escape-words (HySymbol w)))
 
 
@@ -477,9 +479,10 @@
        'error  'error/cl       
        'declare   'declare/cl
        'ignorable 'ignorable/cl
-       'setf 'setv       
-       ;;'setq 'setv
-       'defvar 'setv
+       ;; 'defvar 'setv
+       ;; 'setf 'setv
+       'setq 'setv
+
        'type  'dummy-fn/cl
        
        ;'QUOTE   'quote
@@ -648,7 +651,7 @@
            (hy.models.HyKeyword (cut st 1 None))
            ))))
 
-;;(to-pipe-symbol 'aaa True)
+;;(to-pipe-symbol '&aaa True)
 
 
 (defn to-pipe-symbol-deep [qexpr]
@@ -1173,19 +1176,18 @@
 (cl_struct_import_obj (numpy.array [1 2 3 ]))
 
 
-
-(defn cl_eval_str  [expr] (clisp.eval_str expr))
-(defn cl_eval_qexpr [expr] (clisp.eval_qexpr expr))
-
-(defn cl_eval_hy_qexpr [qexpr]
-  ;(print (hy-repr qexpr))
-  (setv qexpr (hy2cl-symbol-deep  qexpr))
-  ;(print (hy-repr qexpr))    
-  (setv qexpr (to-pipe-symbol-deep qexpr))
-  ;(print (hy-repr qexpr))
-  (clisp.eval_qexpr qexpr)
+(eval-and-compile
+  (defn cl_eval_str  [expr] (clisp.eval_str expr))
+  (defn cl_eval_qexpr [expr] (clisp.eval_qexpr expr))
+  (defn cl_eval_hy_qexpr [qexpr]
+    ;;(print (hy-repr qexpr))
+    (setv qexpr (hy2cl-symbol-deep  qexpr))
+    ;;(print (hy-repr qexpr))    
+    (setv qexpr (to-pipe-symbol-deep qexpr))
+    ;;(print (hy-repr qexpr))
+    (clisp.eval_qexpr qexpr)
   )
-
+)
 ;;(setv hy2cl-s-dic-str (dfor (, k v) (hy2cl-s-dic.items) [(str k) (str v)]))
 
 ;; (defn cl_eval_hy_str [expr]
@@ -1194,12 +1196,20 @@
 ;;   (clisp.eval_str expr))
 
 
-
 (defmacro cl_eval_hy [expr]
   ;; (setv ret (cl_eval_hy_qexpr expr))
   ;; `'~ret
   `(cl_eval_hy_qexpr '~expr))
   
+(defmacro defmacro/cl [name arg &rest code]
+    (setv qexpr `(defmacro ~name ~arg ~@code))
+  ;; (setv qexpr (hy2cl-symbol-deep  qexpr))
+  ;; (print (hy-repr qexpr))
+    ;; (setv qexpr (to-pipe-symbol-deep qexpr))
+    ;; (print (hy-repr qexpr))
+  ;;`(cl_eval_hy ~qexpr)
+  `(eval-and-compile (cl_eval_hy ~qexpr))
+    )
 
 
 
@@ -1314,15 +1324,12 @@
   p)
   
 
-(defn q-exp-clmc-rename-deep4 [p &optional [non-cl-macro-expand-symbols non-cl-macro-expand-symbols] ]
-  (cl_eval_hy_qexpr `(MACROEXPAND-DAMMIT:MACROEXPAND-DAMMIT '~p)))
+(defn q-exp-clmc-rename-deep4 [qexpr &optional [non-cl-macro-expand-symbols non-cl-macro-expand-symbols] ]
+  ;;(print "q-exp-clmc-rename-deep4" (hy-repr qexpr) )
+  (cl_eval_hy_qexpr `(MACROEXPAND-DAMMIT:MACROEXPAND-DAMMIT
+                       '~qexpr
+                       )))
   
-(defmacro defmacro/cl [name arg &rest code]
-  (setv p `(defmacro ~name ~arg ~@code))
-  ;;(print (hy-repr p))
-  `(cl_eval_hy ~p)
-  )
-
 ;; (defmacro labels [name arg &rest code]
 ;;   `(defn ~name [~@arg]
 ;;      ~@(lfor p code (q-exp-cl-rename-deep p)))
