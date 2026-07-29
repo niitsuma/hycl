@@ -419,6 +419,29 @@
                        (cl-condition-class ~(hy.models.String (str (get c 0))))]
                 ~@(cut c 2 None)))))
 
+(defmacro cl-handler-bind [bindings #* body]
+  "Run a handler without unwinding first, and decline by returning.
+
+Common Lisp runs a HANDLER-BIND handler in the dynamic context where the
+condition was signalled: the stack is still there, which is what lets the
+handler pick a restart.  Python has no such thing -- `except` has already
+unwound by the time the handler runs -- so what we can honour is the other
+half of the contract: a handler that returns normally *declines*, and the
+condition keeps going.  A handler that transfers control, by invoking a
+restart or by throwing, does so from the handler's own frame rather than the
+signalling one.  Section `Limitations` of the paper says so.
+
+  (handler-bind ((error (lambda (c) (invoke-restart 'use-value 0))))
+    (compute))"
+  (setv e (hy.gensym "condition"))
+  `(try
+     (do ~@body)
+     ~@(lfor b bindings
+             `(except [~e (cl-condition-class
+                            ~(hy.models.String (str (get b 0))))]
+                (cl-funcall ~(get b 1) ~e)   ; the binding is a function
+                (raise)))))
+
 (defmacro cl-restart-case [protected #* clauses]
   (setv e (hy.gensym "restart"))
   (defn dispatch [i]

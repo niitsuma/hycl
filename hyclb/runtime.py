@@ -5,6 +5,7 @@ symbol that doubles as the empty list, and it is the only false value --
 Python falsiness is deliberately not used anywhere.
 """
 
+import threading
 from fractions import Fraction
 
 # --------------------------------------------------------------------------
@@ -1145,21 +1146,50 @@ class GenericFunction:
 
 
 def _call_with_next(chain, args):
-    """Run the most specific primary, with CALL-NEXT-METHOD available."""
+    """Run the most specific primary, with CALL-NEXT-METHOD available.
+
+    The remainder of the chain is pushed on a stack for the duration of the
+    call, so a method that calls another generic function nests correctly and
+    CALL-NEXT-METHOD always means the innermost method's own next.
+    """
     if not chain:
         raise TypeError("no next method")
-    saved = _next_methods.get(id(chain[0]))
-    _next_methods[id(chain[0])] = (chain[1:], args)
+    stack = _method_stack()
+    stack.append((chain[1:], args))
     try:
         return chain[0](*args)
     finally:
-        if saved is None:
-            _next_methods.pop(id(chain[0]), None)
-        else:
-            _next_methods[id(chain[0])] = saved
+        stack.pop()
 
 
-_next_methods = {}
+def _method_stack():
+    stack = getattr(_next_methods, "stack", None)
+    if stack is None:
+        stack = _next_methods.stack = []
+    return stack
+
+
+def cl_call_next_method(*args):
+    """The next most specific primary method.
+
+    With no arguments the method is called on the original arguments, as
+    Common Lisp specifies; with arguments, on those instead.
+    """
+    stack = _method_stack()
+    if not stack:
+        raise Condition("call-next-method called outside a method")
+    chain, original = stack[-1]
+    if not chain:
+        raise Condition("no next method")
+    return _call_with_next(chain, args if args else original)
+
+
+def cl_next_method_p():
+    stack = _method_stack()
+    return boolify(bool(stack and stack[-1][0]))
+
+
+_next_methods = threading.local()
 _generics = {}
 
 

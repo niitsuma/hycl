@@ -35,3 +35,33 @@
 (defmethod greet :after ((s shape)) (setq *log* (cons 'after *log*)))
 (deftest qualifiers 'hello (greet (make-instance 'shape)))
 (deftest qualifier-order '(after before) *log*)
+
+;;; CALL-NEXT-METHOD.  The applicable primaries are already ranked by total
+;;; MRO distance; what this adds is the rest of that chain, kept on a stack
+;;; for the duration of each call so nested generic calls do not interfere.
+
+(defclass cnm-animal () ())
+(defclass cnm-dog (cnm-animal) ())
+(defclass cnm-puppy (cnm-dog) ())
+
+(defgeneric cnm-describe (x))
+(defmethod cnm-describe ((x cnm-animal)) (list 'animal))
+(defmethod cnm-describe ((x cnm-dog)) (cons 'dog (call-next-method)))
+(defmethod cnm-describe ((x cnm-puppy)) (cons 'puppy (call-next-method)))
+
+(defgeneric cnm-depth (x))
+(defmethod cnm-depth ((x cnm-animal)) 0)
+(defmethod cnm-depth ((x cnm-dog)) (if (next-method-p) (+ 1 (call-next-method)) 0))
+
+(defgeneric cnm-relabel (x y))
+(defmethod cnm-relabel ((x cnm-animal) y) (list 'base y))
+(defmethod cnm-relabel ((x cnm-dog) y) (call-next-method x 'changed))
+
+(deftest call-next-method-chain '(puppy dog animal)
+  (cnm-describe (make-instance 'cnm-puppy)))
+(deftest call-next-method-two '(dog animal)
+  (cnm-describe (make-instance 'cnm-dog)))
+(deftest next-method-p-true 1 (cnm-depth (make-instance 'cnm-dog)))
+(deftest next-method-p-false 0 (cnm-depth (make-instance 'cnm-animal)))
+(deftest call-next-method-with-args '(base changed)
+  (cnm-relabel (make-instance 'cnm-dog) 'orig))

@@ -59,6 +59,16 @@ specialised lambda list moves when a qualifier such as :before is present."
   "Frontier forms shaped as (op protected (head (vars) body...) ...): the
 protected form and every clause body are expanded, the clause heads are not.")
 
+(defvar *binding-forms* '("HANDLER-BIND")
+  "Frontier forms shaped as (op ((name form) ...) body...): the bound forms
+and the body are expanded, the names are not.")
+
+(defun walk-binding-form (form)
+  (list* (car form)
+         (loop for b in (second form)
+               collect (list* (first b) (mapcar #'expand-all (rest b))))
+         (mapcar #'expand-all (cddr form))))
+
 (defun walk-clause-form (form)
   (list* (car form)
          (expand-all (second form))
@@ -85,12 +95,26 @@ constructs for its own body, wherever that function was written -- including
 inside a macro that generated it."
   (when (member (symbol-name (car form)) *clause-forms* :test #'string=)
     (return-from walk-stopped (walk-clause-form form)))
+  (when (member (symbol-name (car form)) *binding-forms* :test #'string=)
+    (return-from walk-stopped (walk-binding-form form)))
   (let ((skip (stop-skip form))
         (*stop* (if (fast-defun-p form) (fast-stop-list) *stop*)))
     (cons (car form)
           (loop for x in (cdr form)
                 for i from 1
                 collect (if (or (<= i skip) (atom x)) x (expand-all x))))))
+
+(defun form-start (stream)
+  "The character offset where the next form begins.
+
+Whitespace and comment lines are stepped over first, so the offset names the
+form rather than whatever blank space preceded it.  The back end turns it into
+a line number, which is what a traceback shows."
+  (loop
+    (let ((c (peek-char t stream nil :%eof)))
+      (cond ((eq c :%eof) (return (file-position stream)))
+            ((char= c #\;) (read-line stream nil))
+            (t (return (file-position stream)))))))
 
 (defun expand-step (form env)
   "Expand FORM one macro at a time, stopping when we reach the frontier."
@@ -357,27 +381,28 @@ call we also generate."
                 (let ((*readtable* *user-readtable*)
                       (*package* (find-package :common-lisp-user)))
                   (with-input-from-string (in text)
-                    (loop for form = (read in nil :%eof)
+                    (loop for offset = (form-start in)
+                          for form = (read in nil :%eof)
                           until (eq form :%eof)
                           collect
                           (cond
                             ((expander-form-p form)
                              (quietly (eval form))
-                             (list :skip))
+                             (list :skip offset))
                             ;; DECLAIM is both a fact for the expander and a
                             ;; type annotation for the generated Python
                             ((and (consp form) (symbolp (car form))
                                   (string= (symbol-name (car form)) "DECLAIM"))
                              (quietly (eval form))
-                             (list :form form))
+                             (list :form form offset))
                             ((defstruct-form-p form)
                              (quietly (mapc #'eval (struct-setf-forms form)))
-                             (list :form form))
+                             (list :form form offset))
                             ((and (consp form) (symbolp (car form))
                                   (string= (symbol-name (car form)) "DEFUN"))
                              (run-spec-tests form)
-                             (list :form (rename-gensyms (expand-all form))))
-                            (t (list :form (rename-gensyms (expand-all form)))))))))
+                             (list :form (rename-gensyms (expand-all form)) offset))
+                            (t (list :form (rename-gensyms (expand-all form)) offset)))))))
              (error (e) (emit (list :error (princ-to-string e)))))))
         (:eval
          (let ((form (let ((*readtable* *user-readtable*)
@@ -649,4 +674,7 @@ The equation is written with AREF, so (aref a (+ n 1)) is Maxima's a[n+1]."
           maxima-provable-p maxima-solve-rec)
         :common-lisp-user)
 
-(serve)
+;; Loaded as a script, start serving.  Setting HYCLB_BUILD_CORE loads the
+;; bridge without serving, which is what building a core image would need.
+(unless (equal (sb-ext:posix-getenv "HYCLB_BUILD_CORE") "1")
+  (serve))

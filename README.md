@@ -111,6 +111,7 @@ print(module.square(7))
 | `maxima-apps.lisp` | analytic gradients, subexpression elimination, series, identity checking |
 | `lagrangian.lisp` | equations of motion derived from a Lagrangian, then simulated |
 | `sequences.lisp` | a recurrence solved symbolically, streamed lazily, compiled to machine code |
+| `tailcall.lisp` | self-tail recursion compiled to a loop; mutual recursion left alone |
 | `lasso.lisp` | LASSO by coordinate descent, compiled three ways; `benchmarks/lasso.py` times them against NumPy, scikit-learn and cuML |
 | `sweep.lisp` | a hyperparameter grid built at compile time, driving PyTorch Lightning |
 | `lightning_demo.lisp` | a LightningModule whose class definition a macro generates |
@@ -131,7 +132,9 @@ python -c "import hyclb; from hyclb.api import cl_load; cl_load('tests/onlisp.li
 ```
 
 Each suite prints `(pass ...)` or `(FAIL ...)` per case; `tests/test_suites.py`
-turns that into pytest results.
+turns that into pytest results. A suite that needs Maxima, Quicklisp or a
+Python package the machine does not have is skipped with a reason rather than
+failed, which is what lets CI run the rest.
 
 One caveat worth knowing: a `.lisp` file shadows an installed package of the
 same name, exactly as a `.py` file would — and an *empty* `.lisp` file shadows
@@ -156,9 +159,11 @@ however many macros a program uses.
 ## Status
 
 A research prototype. The package system is not implemented (symbols are known
-by name alone), `call-next-method` and `handler-bind` are absent, and Python's
-lack of tail calls limits deeply recursive code. See the paper for the full
-list.
+by name alone), and Python's lack of tail calls limits *mutual* recursion --
+a function that calls itself in tail position is compiled to a loop, so that
+case is unbounded. `handler-bind` runs its handler after Python has already
+unwound, so a handler can decline or transfer control but cannot inspect the
+signalling frame. See the paper for the full list.
 
 ## Citing
 

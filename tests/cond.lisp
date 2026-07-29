@@ -30,3 +30,27 @@
     (use-value (v) v)))
 (deftest restart-normal 3 (risky 3))
 (deftest restart-invoked 0 (risky 50))
+
+;;; HANDLER-BIND: the handler runs and, if it returns, declines.  Python has
+;;; already unwound by the time an except clause runs, so what carries over is
+;;; the declining, not the "handler runs in the signalling frame" part.
+
+(define-condition hb-error (error) ())
+(defvar *hb-seen* nil)
+
+(defun hb-declines ()
+  (setq *hb-seen* nil)
+  (handler-case
+      (handler-bind ((hb-error (lambda (c) (setq *hb-seen* 'handler-ran))))
+        (error 'hb-error))
+    (hb-error (c) (list *hb-seen* 'outer-caught))))
+
+(defun hb-with-restart (x)
+  (restart-case
+      (handler-bind ((hb-error (lambda (c) (invoke-restart 'use-value 99))))
+        (if (< x 0) (error 'hb-error) x))
+    (use-value (v) v)))
+
+(deftest handler-bind-declines '(handler-ran outer-caught) (hb-declines))
+(deftest handler-bind-passes-through 7 (hb-with-restart 7))
+(deftest handler-bind-invokes-restart 99 (hb-with-restart -1))
