@@ -68,6 +68,12 @@ protected form and every clause body are expanded, the clause heads are not.")
                                   (mapcar #'expand-all (cddr c)))
                            c))))
 
+(defvar *fast-stop*
+  '("DOTIMES" "DOLIST" "DO" "DO*" "LOOP")
+  "Iteration constructs are stopped at, rather than expanded, when a function
+asks for speed: a Python for-loop is both faster and something Numba can
+compile, whereas the general TAGBODY encoding is neither.")
+
 (defun fast-stop-list ()
   (append *stop* (mapcar (lambda (n) (intern n :common-lisp-user)) *fast-stop*)))
 
@@ -94,12 +100,6 @@ inside a macro that generated it."
     (multiple-value-bind (new expanded-p) (macroexpand-1 form env)
       (unless expanded-p (return (values new nil)))
       (setf form new))))
-
-(defvar *fast-stop*
-  '("DOTIMES" "DOLIST" "DO" "DO*" "LOOP")
-  "Iteration constructs are stopped at, rather than expanded, when a function
-asks for speed: a Python for-loop is both faster and something Numba can
-compile, whereas the general TAGBODY encoding is neither.")
 
 (defun fast-defun-p (form)
   "Does this DEFUN declare (optimize (speed 3))?"

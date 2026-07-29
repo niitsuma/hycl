@@ -4,3 +4,6 @@ build/
 dist/
 *.egg-info/
 .pytest_cache/
+
+# machine-specific benchmark output
+benchmarks/results/

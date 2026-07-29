@@ -410,6 +410,8 @@ def _var(s):
 def _head_name(s):
     name = s.name
     if _fast:
+        if _approx and name in FAST_APPROX_SPECIAL:
+            return FAST_APPROX_SPECIAL[name]
         if name in FAST_SPECIAL:
             return FAST_SPECIAL[name]
         if name in FAST_RUNTIME:
@@ -428,17 +430,33 @@ def _head_name(s):
 # ---------------------------------------------------------------- compounds
 
 
+def _is_setf_aref(form):
+    """(funcall (function (setf aref)) value array index...)"""
+    first = form.cdr.car if isinstance(form.cdr, Cons) else None
+    if not (isinstance(first, Cons) and isinstance(first.car, Symbol)
+            and first.car.name == "function"):
+        return False
+    place = first.cdr.car if isinstance(first.cdr, Cons) else None
+    return (isinstance(place, Cons) and isinstance(place.car, Symbol)
+            and place.car.name == "setf"
+            and isinstance(place.cdr, Cons) and isinstance(place.cdr.car, Symbol)
+            and place.cdr.car.name == "aref")
+
+
 SPECIALS = set()
 
 # In fast mode the Lisp value representation is dropped: predicates return
 # Python booleans, conditionals test Python truth, and arithmetic is Python's.
 FAST_SPECIAL = {"if": "cl-if-fast", "defun": "cl-defun-fast"}
+FAST_APPROX_SPECIAL = {"defun": "cl-defun-approx"}
 FAST_RUNTIME = {
     "=": "=", "/=": "!=", "<": "<", ">": ">", "<=": "<=", ">=": ">=",
     "+": "+", "-": "-", "*": "*", "/": "/",
     "mod": "%", "not": "not", "expt": "**", "float": "float",
+    "aref": "get",
 }
 _fast = False
+_approx = False
 
 
 def _spec_declaration(body):
@@ -467,8 +485,8 @@ def _spec_declaration(body):
     return None
 
 
-def _safety_level(body):
-    """The (optimize (safety n)) level, defaulting to 1 as Common Lisp does."""
+def _optimize_quality(body, quality_name, default):
+    """The level of one (optimize (QUALITY n)) declaration in BODY."""
     for form in body:
         if not (isinstance(form, Cons) and isinstance(form.car, Symbol)
                 and form.car.name == "declare"):
@@ -478,31 +496,38 @@ def _safety_level(body):
                     and entry.car.name == "optimize"):
                 continue
             for quality in _iter(entry.cdr):
+                if isinstance(quality, Symbol) and quality.name == quality_name:
+                    return 3            # a bare quality name means level 3
                 if isinstance(quality, Cons) and isinstance(quality.car, Symbol) \
-                        and quality.car.name == "safety":
+                        and quality.car.name == quality_name:
                     level = quality.cdr.car if isinstance(quality.cdr, Cons) else 3
                     if isinstance(level, int):
                         return level
-    return 1
+    return default
+
+
+def _safety_level(body):
+    """The (optimize (safety n)) level, defaulting to 1 as Common Lisp does."""
+    return _optimize_quality(body, "safety", 1)
 
 
 def _fast_declared(body):
     """Does the body ask for speed?  (declare (optimize (speed 3)))."""
-    for form in body:
-        if not (isinstance(form, Cons) and isinstance(form.car, Symbol)
-                and form.car.name == "declare"):
-            continue
-        for spec in _iter(form.cdr):
-            if not (isinstance(spec, Cons) and isinstance(spec.car, Symbol)
-                    and spec.car.name == "optimize"):
-                continue
-            for quality in _iter(spec.cdr):
-                if isinstance(quality, Cons) and isinstance(quality.car, Symbol) \
-                        and quality.car.name == "speed":
-                    level = quality.cdr.car if isinstance(quality.cdr, Cons) else 3
-                    if isinstance(level, int) and level >= 3:
-                        return True
-    return False
+    return _optimize_quality(body, "speed", 1) >= 3
+
+
+def _approx_declared(body):
+    """Does the body relax floating-point accuracy?
+
+    ANSI Common Lisp lets an implementation define optimize qualities of its
+    own, so the permission to reassociate float arithmetic is spelled the way
+    every other back-end instruction is:
+
+        (declare (optimize (speed 3) (float-accuracy 0)))
+
+    At the default level the arithmetic is left exactly as written.
+    """
+    return _optimize_quality(body, "float-accuracy", 3) == 0
 
 
 def _record_declaim(rest):
@@ -556,6 +581,9 @@ def _call(form):
             return translate(form.cdr.cdr.car)
         if name == "declare":
             return M.Expression([sym("cl-declare")])
+        if name == "funcall" and _is_setf_aref(form):
+            args = list(_iter(form.cdr))
+            return M.Expression([sym("cl-aset")] + [translate(a) for a in args[1:]])
         if name == "symbol-macrolet":
             return translate(_expand_symbol_macrolet(form))
         args = _args(form.cdr, name)
@@ -563,17 +591,17 @@ def _call(form):
             _record_declaim(form.cdr)
             return M.Expression([sym("cl-declare")])
         if name == "defun":
-            global _fast
+            global _fast, _approx
             raw = list(_iter(form.cdr))
             spec = _spec_declaration(raw[2:]) if len(raw) > 2 else None
             if spec is not None and _safety_level(raw[2:]) > 0:
                 return _checked_defun(form, raw, spec)
             if _fast_declared(raw[2:]) and not _fast:
-                _fast = True
+                _fast, _approx = True, _approx_declared(raw[2:])
                 try:
                     return _call(form)
                 finally:
-                    _fast = False
+                    _fast, _approx = False, False
             types = _declared_types(raw[2:]) if len(raw) > 2 else {}
             if types:
                 args[1] = _annotate_params(args[1], types)

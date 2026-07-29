@@ -1754,6 +1754,20 @@ def numba_njit(fn):
     return numba.njit(cache=False)(fn)
 
 
+def numba_njit_approx(fn):
+    """Compile FN allowing floating-point arithmetic to be reassociated.
+
+    Selected by (declare (optimize (speed 3) (float-accuracy 0))).  Reductions
+    can then be split across vector lanes, which is where most of the gain is,
+    at the cost of results that need not be bit-identical to the source order.
+    """
+    try:
+        import numba
+    except Exception:
+        return fn
+    return numba.njit(cache=False, fastmath=True)(fn)
+
+
 # --------------------------------------------------------------------------
 # lazy streams
 #

@@ -42,7 +42,11 @@ What that buys:
   library raises.
 * **Common Lisp's own declarations drive the back end.** `(declare (type ...))`
   becomes a Python type annotation; `(declare (optimize (speed 3)))` selects a
-  second compilation that Numba turns into machine code.
+  second compilation that Numba turns into machine code, and adding
+  `(float-accuracy 0)` — an `optimize` quality of our own, which the standard
+  permits an implementation to define — lets the reductions be vectorised.
+  `benchmarks/lasso.py` measures what those two declarations are worth on a
+  LASSO regression written in Common Lisp.
 
 ## Installing
 
@@ -107,6 +111,7 @@ print(module.square(7))
 | `maxima-apps.lisp` | analytic gradients, subexpression elimination, series, identity checking |
 | `lagrangian.lisp` | equations of motion derived from a Lagrangian, then simulated |
 | `sequences.lisp` | a recurrence solved symbolically, streamed lazily, compiled to machine code |
+| `lasso.lisp` | LASSO by coordinate descent, compiled three ways; `benchmarks/lasso.py` times them against NumPy, scikit-learn and cuML |
 | `sweep.lisp` | a hyperparameter grid built at compile time, driving PyTorch Lightning |
 | `lightning_demo.lisp` | a LightningModule whose class definition a macro generates |
 | `generators.lisp` | `yield` through every binding and control form; `async` |

@@ -476,6 +476,11 @@
   (setv [params restname] (lambda-list ll))
   `(defn [numba-njit] ~name [~@params] ~@body))
 
+;; (optimize (float-accuracy 0)) -- the arithmetic may be reassociated
+(defmacro cl-defun-approx [name ll #* body]
+  (setv [params restname] (lambda-list ll))
+  `(defn [numba-njit-approx] ~name [~@params] ~@body))
+
 ;; Iteration compiled directly, for the fast path.  The general expansion goes
 ;; through TAGBODY and an implicit block; neither survives Numba.
 
@@ -527,3 +532,7 @@
              (setv ret (cl-block ~name ~@body))
              ~@post
              ret)])))
+
+;; (setf (aref v i) x) -- a subscript assignment, so that it survives Numba
+(defmacro cl-aset [value array #* index]
+  `(do (setv (get ~array ~@index) ~value) ~value))
