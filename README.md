@@ -46,8 +46,12 @@ What that buys:
 
 ## Installing
 
+Not on PyPI: the name `hyclb` there still holds the 2020 implementation, which
+this supersedes and which no current Hy can run. Install from the repository.
+
 ```
-pip install hyclb
+git clone https://github.com/niitsuma/hycl
+pip install -e hycl
 ```
 
 SBCL must be on `PATH`; it is the macroexpander and cannot be installed by pip.
@@ -61,7 +65,7 @@ Optional:
 
 * **Quicklisp** — install it in the usual way to load Common Lisp libraries
   into the expander with `(ql:quickload "trivia")`.
-* **Numba** (`pip install hyclb[fast]`) — for `(declare (optimize (speed 3)))`.
+* **Numba** (`pip install numba`) — for `(declare (optimize (speed 3)))`.
   Without it those functions still run, just not as machine code.
 * **Maxima** — for driving a computer algebra system from a macro. Maxima is
   GPL v2 and is run as a separate process; it is neither linked nor
