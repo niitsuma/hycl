@@ -154,7 +154,8 @@ list.
 
 ## Citing
 
-See `paper-en.tex` in the repository.
+A paper describing the design is in preparation and is not in this repository
+yet. Until it appears, cite the repository and the commit you used.
 
 ## License
 
