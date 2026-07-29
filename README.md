@@ -50,9 +50,12 @@ Not on PyPI: the name `hyclb` there still holds the 2020 implementation, which
 this supersedes and which no current Hy can run. Install from the repository.
 
 ```
-git clone https://github.com/niitsuma/hycl
-pip install -e hycl
+git clone https://github.com/niitsuma/hycl   # the repository is named hycl
+pip install -e hycl                          # the package it installs is hyclb
 ```
+
+The two names differ, inherited from 2020: you clone `hycl` and you
+`import hyclb`.
 
 SBCL must be on `PATH`; it is the macroexpander and cannot be installed by pip.
 
