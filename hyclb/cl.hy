@@ -536,3 +536,19 @@
 ;; (setf (aref v i) x) -- a subscript assignment, so that it survives Numba
 (defmacro cl-aset [value array #* index]
   `(do (setv (get ~array ~@index) ~value) ~value))
+
+;; Self-tail recursion.  Python has no tail calls, so a function that calls
+;; itself in tail position is compiled as a loop: rebind the parameters and go
+;; round again.  The translator marks the tail positions; these three macros
+;; are all that is left to do.  Mutual recursion still uses the stack.
+(defmacro cl-defun-loop [name ll #* body]
+  (setv [params restname] (lambda-list ll))
+  `(defn ~name [~@params]
+     ~@(rest-fixup restname [`(while True ~@body)])))
+
+(defmacro cl-tail-recur [params #* args]
+  ;; simultaneous, as a call would be: every argument is evaluated first
+  `(do (setv #(~@params) #(~@args)) (continue)))
+
+(defmacro cl-tail-return [value]
+  `(return ~value))

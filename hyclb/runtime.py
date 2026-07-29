@@ -1745,13 +1745,58 @@ def _format_iteration(dest, text, args):
 # always had, made real.
 
 
-def numba_njit(fn):
-    """Compile FN with Numba if it is installed; otherwise leave it alone."""
+def _numba_cache_dir():
+    """A cache directory that changes whenever hyclb itself changes.
+
+    Numba invalidates its disk cache by the source file's stamp, so like the
+    bytecode cache it would survive an upgrade of the translator and serve
+    machine code compiled from the old translation.  Pointing NUMBA_CACHE_DIR
+    at a directory named after a hash of hyclb's own files makes the stale
+    cache unreachable instead; old directories are pruned.
+    """
+    import hashlib
+    import os
+    import pathlib
+
+    here = pathlib.Path(__file__).parent
+    h = hashlib.sha256()
+    for name in sorted(p.name for p in here.iterdir()
+                       if p.suffix in (".py", ".hy", ".lisp")):
+        h.update((here / name).read_bytes())
+    base = pathlib.Path(os.environ.get("XDG_CACHE_HOME",
+                                       pathlib.Path.home() / ".cache")) / "hyclb"
+    mine = base / f"numba-{h.hexdigest()[:16]}"
     try:
+        mine.mkdir(parents=True, exist_ok=True)
+        for old in base.glob("numba-*"):
+            if old != mine:
+                import shutil
+                shutil.rmtree(old, ignore_errors=True)
+    except OSError:
+        return None
+    return str(mine)
+
+
+def _njit(fn, **kwargs):
+    try:
+        import os
+        if "NUMBA_CACHE_DIR" not in os.environ:
+            cache = _numba_cache_dir()
+            if cache:
+                os.environ["NUMBA_CACHE_DIR"] = cache
         import numba
     except Exception:
         return fn
-    return numba.njit(cache=False)(fn)
+    # Numba locates its cache through the function's source file, so only a
+    # function that came from a real file -- cl_load or the import hook, not
+    # cl_eval of a string -- can be cached.
+    cacheable = os.path.exists(getattr(fn.__code__, "co_filename", ""))
+    return numba.njit(cache=cacheable, **kwargs)(fn)
+
+
+def numba_njit(fn):
+    """Compile FN with Numba if it is installed; otherwise leave it alone."""
+    return _njit(fn)
 
 
 def numba_njit_approx(fn):
@@ -1761,11 +1806,7 @@ def numba_njit_approx(fn):
     can then be split across vector lanes, which is where most of the gain is,
     at the cost of results that need not be bit-identical to the source order.
     """
-    try:
-        import numba
-    except Exception:
-        return fn
-    return numba.njit(cache=False, fastmath=True)(fn)
+    return _njit(fn, fastmath=True)
 
 
 # --------------------------------------------------------------------------

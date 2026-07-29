@@ -10,8 +10,10 @@ cached as bytecode next to the source.  A second run does not start SBCL --
 the Lisp is needed to build the module, not to import it.
 """
 
+import hashlib
 import importlib
 import importlib.machinery as machinery
+import pathlib
 import sys
 
 import hy
@@ -22,7 +24,36 @@ from . import api
 SUFFIX = ".lisp"
 
 
+def _self_stamp():
+    """A number that changes whenever hyclb's own translation changes.
+
+    The bytecode cache is invalidated by the source file's mtime and size, so
+    on its own it survives an upgrade of the translator: a module imported
+    yesterday keeps running yesterday's compilation.  Folding this stamp into
+    the reported mtime makes a change to hyclb (or to Hy) look like a change
+    to every .lisp source.
+    """
+    h = hashlib.sha256()
+    here = pathlib.Path(__file__).parent
+    for name in sorted(p.name for p in here.iterdir()
+                       if p.suffix in (".py", ".hy", ".lisp")):
+        h.update((here / name).read_bytes())
+    h.update(getattr(hy, "__version__", "?").encode())
+    return int.from_bytes(h.digest()[:4], "little")
+
+
+_STAMP = None
+
+
 class LispLoader(machinery.SourceFileLoader):
+    def path_stats(self, path):
+        global _STAMP
+        if _STAMP is None:
+            _STAMP = _self_stamp()
+        st = dict(super().path_stats(path))
+        st["mtime"] = (int(st["mtime"]) ^ _STAMP) & 0xFFFFFFFF
+        return st
+
     def source_to_code(self, data, path, *, _optimize=-1):
         # Not super(): Hy replaces SourceFileLoader.source_to_code with its
         # own, which expects the bytes of a .hy file.

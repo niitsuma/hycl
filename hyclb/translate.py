@@ -28,6 +28,8 @@ SPECIAL = {
     "function": "cl-function",
     "lambda": "cl-lambda",
     "defun": "cl-defun",
+    "%tail-recur": "cl-tail-recur",
+    "%tail-return": "cl-tail-return",
     "flet": "cl-flet",
     "labels": "cl-labels",
     "unwind-protect": "cl-unwind-protect",
@@ -416,6 +418,8 @@ def _head_name(s):
             return FAST_SPECIAL[name]
         if name in FAST_RUNTIME:
             return FAST_RUNTIME[name]
+    if name in LOOP_SPECIAL:
+        return LOOP_SPECIAL[name]
     if name in SPECIAL:
         return SPECIAL[name]
     if name in RUNTIME:
@@ -448,6 +452,8 @@ SPECIALS = set()
 # In fast mode the Lisp value representation is dropped: predicates return
 # Python booleans, conditionals test Python truth, and arithmetic is Python's.
 FAST_SPECIAL = {"if": "cl-if-fast", "defun": "cl-defun-fast"}
+# a self-tail-recursive defun compiles to a loop instead of the block form
+LOOP_SPECIAL = {"%defun-loop": "cl-defun-loop"}
 FAST_APPROX_SPECIAL = {"defun": "cl-defun-approx"}
 FAST_RUNTIME = {
     "=": "=", "/=": "!=", "<": "<", ">": ">", "<=": "<=", ">=": ">=",
@@ -483,6 +489,115 @@ def _spec_declaration(body):
                     spec["test"] = item if isinstance(item, int) else 0
             return spec
     return None
+
+
+# ---------------------------------------------------------- self-tail calls
+#
+# Python has no tail-call optimisation, so a function that calls itself in
+# tail position grows the stack and dies at a few thousand frames.  A call to
+# *itself* in tail position, however, is just a loop: rebind the parameters
+# and go round again.  Mutual recursion is not covered and still has Python's
+# limit, which the documentation says.
+#
+# The rewrite marks each tail position of the body -- a self call becomes
+# %TAIL-RECUR, anything else %TAIL-RETURN -- and cl.hy wraps the result in a
+# loop.  It is applied only when it is certainly safe (see _tail_safe).
+
+_TAIL_UNSAFE = frozenset({
+    # a tail position inside these is not a tail position at all, or the
+    # parameters may be captured, so we decline rather than analyse further
+    "unwind-protect", "tagbody", "go", "catch", "throw",
+    "flet", "labels", "lambda", "function", "symbol-macrolet",
+    "handler-case", "handler-bind", "restart-case", "restart-bind",
+    "multiple-value-bind", "py-with", "cl-py-with",
+})
+
+
+def _subforms(x):
+    """Every cons in the tree, outermost first."""
+    if isinstance(x, Cons):
+        yield x
+        yield from _subforms(x.car)
+        yield from _subforms(x.cdr)
+
+
+def _mklist(items):
+    out = NIL
+    for x in reversed(items):
+        out = Cons(x, out)
+    return out
+
+
+def _tail_safe(fname, lam, body):
+    """May the body of FNAME be turned into a loop?
+
+    Conservative on purpose: anything that could make a marked position not
+    really a tail position, or could capture a parameter in a closure, or
+    could re-enter the implicit block, disqualifies the function.
+    """
+    params = list(_iter(lam))
+    if any(isinstance(p, Symbol) and p.name.startswith("&") for p in params):
+        return None                      # &optional/&rest/&key: not worth it
+    if not all(isinstance(p, Symbol) for p in params):
+        return None
+    for cons in _subforms(_mklist(body)):
+        if not isinstance(cons.car, Symbol):
+            continue
+        op = cons.car.name
+        if op in _TAIL_UNSAFE:
+            return None
+        if op == "return-from":
+            target = cons.cdr.car if isinstance(cons.cdr, Cons) else None
+            if isinstance(target, Symbol) and target.name == fname:
+                return None              # re-enters the block we are removing
+        if op == "setq":
+            # assigning a parameter is fine, but assigning the function's own
+            # name would make the self call not a self call
+            for i, x in enumerate(_iter(cons.cdr)):
+                if i % 2 == 0 and isinstance(x, Symbol) and x.name == fname:
+                    return None
+    return params
+
+
+def _mark_tails(form, fname, params):
+    """Mark the tail positions of FORM.  Returns (new form, found a self call)."""
+    if isinstance(form, Cons) and isinstance(form.car, Symbol):
+        op = form.car.name
+        args = list(_iter(form.cdr))
+        if op in ("progn", "locally") and args:
+            new, found = _mark_tails(args[-1], fname, params)
+            return Cons(form.car, _mklist(args[:-1] + [new])), found
+        if op == "if" and len(args) >= 2:
+            then, f1 = _mark_tails(args[1], fname, params)
+            if len(args) >= 3:
+                els, f2 = _mark_tails(args[2], fname, params)
+                return Cons(form.car, _mklist([args[0], then, els])), f1 or f2
+            return Cons(form.car, _mklist([args[0], then])), f1
+        if op in ("let", "let*", "block") and len(args) >= 2:
+            new, found = _mark_tails(args[-1], fname, params)
+            return Cons(form.car, _mklist(args[:-1] + [new])), found
+        if op == "the" and len(args) == 2:
+            new, found = _mark_tails(args[1], fname, params)
+            return Cons(form.car, _mklist([args[0], new])), found
+        if op == fname and len(args) == len(params):
+            return (Cons(Symbol("%tail-recur"),
+                         _mklist([_mklist(params)] + args)), True)
+    return Cons(Symbol("%tail-return"), _mklist([form])), False
+
+
+def _loop_body(fname, lam, body):
+    """The body rewritten as a loop, or None if the rewrite does not apply."""
+    params = _tail_safe(fname, lam, body)
+    if params is None or not body:
+        return None
+    head, last = body[:-1], body[-1]
+    if isinstance(last, Cons) and isinstance(last.car, Symbol) \
+            and last.car.name == "declare":
+        return None                      # a body that is only declarations
+    new, found = _mark_tails(last, fname, params)
+    if not found:
+        return None
+    return head + [new]
 
 
 def _optimize_quality(body, quality_name, default):
@@ -602,6 +717,12 @@ def _call(form):
                     return _call(form)
                 finally:
                     _fast, _approx = False, False
+            if len(raw) > 2 and isinstance(raw[0], Symbol):
+                looped = _loop_body(raw[0].name, raw[1], raw[2:])
+                if looped is not None:
+                    form = Cons(form.car, _mklist([raw[0], raw[1]] + looped))
+                    args = _args(form.cdr, name)
+                    head = Symbol("%defun-loop")   # name stays "defun": same shape
             types = _declared_types(raw[2:]) if len(raw) > 2 else {}
             if types:
                 args[1] = _annotate_params(args[1], types)
@@ -742,11 +863,13 @@ _STRUCTURAL = {
     "labels": {1: "fbindings"},
     "lambda": {1: "bindings"},
     "defun": {1: "name", 2: "bindings"},
+    "%defun-loop": {1: "name", 2: "bindings"},
     "block": {1: "name"},
     "return-from": {1: "name"},
     "go": {1: "name"},
     "function": {1: "fname"},
     "multiple-value-bind": {1: "names"},
+    "%tail-recur": {1: "names"},
     "tagbody": "tags",
     "py-import": {1: "name"},
     "py-import-as": {1: "name", 2: "name"},
