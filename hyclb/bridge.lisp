@@ -326,7 +326,7 @@ call we also generate."
   (loop
     (let ((cmd (read *standard-input* nil :quit)))
       (case cmd
-        (:quit (return))
+        (:quit (maxima-stop) (return))
         (:set-case
          ;; :invert round-trips Python identifiers, but it also makes source
          ;; case-sensitive: an existing library that writes both C-of and
@@ -431,6 +431,16 @@ its uses would not match; interning them keeps them identical."
                  (incf i 2)
                  (progn (write-char (char text i) out) (incf i))))
     (get-output-stream-string out)))
+
+(defun maxima-stop ()
+  (when *maxima*
+    ;; GCL ignores SIGTERM here, so do not ask twice
+              (ignore-errors (sb-ext:process-kill *maxima* 9))
+    (setf *maxima* nil)))
+
+;; Maxima is a child of this process and does not die with it on its own;
+;; without this it is left running after every compilation.
+(push #'maxima-stop sb-ext:*exit-hooks*)
 
 (defun maxima-eval (lisp-text)
   "Evaluate LISP-TEXT inside Maxima's Lisp and read back the result."

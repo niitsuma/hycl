@@ -4,6 +4,7 @@ SBCL is a build-time dependency: it runs while a .lisp file is being compiled
 and takes no part in running the resulting Python.
 """
 
+import atexit
 import os
 import subprocess
 import sys
@@ -104,8 +105,20 @@ _shared = None
 
 
 def shared():
-    """One SBCL per process, started on first use."""
+    """One SBCL per process, started on first use and closed on exit.
+
+    Without the atexit hook the expander -- and the Maxima it may have
+    started -- outlives every compilation.
+    """
     global _shared
     if _shared is None:
         _shared = Sbcl()
+        atexit.register(_close_shared)
     return _shared
+
+
+def _close_shared():
+    global _shared
+    if _shared is not None:
+        _shared.close()
+        _shared = None
