@@ -25,8 +25,17 @@ SUITES = sorted(HERE.glob("*.lisp"))
 
 
 def _has_module(name):
-    import importlib.util
-    return importlib.util.find_spec(name) is not None
+    """Importable, not merely present.
+
+    find_spec answers yes for a package whose own dependencies are missing,
+    and the suite then fails where it should have skipped.
+    """
+    import importlib
+    try:
+        importlib.import_module(name)
+        return True
+    except Exception:
+        return False
 
 
 def _has_quicklisp():

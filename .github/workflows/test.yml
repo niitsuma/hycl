@@ -34,6 +34,9 @@ jobs:
 
       # torch/lightning are deliberately absent: those suites skip and say so.
       # Quicklisp likewise -- ql/libraries skip unless a later step installs it.
+      - name: Installation check
+        run: python -m hyclb
+
       - name: Run test suites
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"

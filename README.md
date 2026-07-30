@@ -48,6 +48,111 @@ What that buys:
   `benchmarks/lasso.py` measures what those two declarations are worth on a
   LASSO regression written in Common Lisp.
 
+## Installing
+
+hyclb needs two things: Hy, which pip installs, and SBCL, which it cannot.
+Everything else is optional and buys a specific feature.
+
+### 1. SBCL
+
+SBCL is the macroexpander. It runs while a `.lisp` file is compiled and takes
+no part in running the result, so it is a build-time dependency in the same
+sense as a compiler — but without it nothing compiles at all.
+
+```console
+$ sudo apt install sbcl          # Debian, Ubuntu
+$ brew install sbcl              # macOS
+$ sudo dnf install sbcl          # Fedora
+```
+
+Any SBCL from the last several years will do; the tests run on 2.2.
+
+### 2. hyclb
+
+Not on PyPI: the name `hyclb` there still holds the 2020 implementation, which
+this supersedes and which no current Hy can run. Install from the repository.
+Note the two names — you clone `hycl` and you `import hyclb`, an inheritance
+from 2020.
+
+```console
+$ git clone https://github.com/niitsuma/hycl
+$ python -m venv .venv && . .venv/bin/activate
+$ pip install -e hycl
+```
+
+Python 3.9 or later. `-e` is not required, but the examples and tests live in
+the checkout, so an editable install keeps them where you can run them.
+
+### 3. Check that it works
+
+```console
+$ python -m hyclb
+```
+
+This prints what is present and what is missing, then compiles a Common Lisp
+function to Python and runs it. If it ends with `This installation works.`,
+the required half is in place.
+
+```
+required
+  Python       3.12.3
+  Hy           1.3.0
+  SBCL         SBCL 2.2.9.debian
+
+optional
+  NumPy        2.2.6
+  Numba        0.61.2
+  Maxima       /usr/bin/maxima
+  Quicklisp    /home/you/quicklisp
+  PyTorch      absent -- the Lightning and autograd examples (pip install torch lightning)
+
+compiling a Lisp function to Python ... ok
+```
+
+### Optional pieces
+
+Each of these is genuinely optional: without it the rest of hyclb works and
+the parts that need it say so rather than failing.
+
+| Install | What it buys |
+| --- | --- |
+| `pip install numpy` | arrays. Most of the examples use them, and the fast path is only interesting over them |
+| `pip install numba` | `(declare (optimize (speed 3)))` becomes machine code. Without it, such functions still run, just as ordinary Python |
+| `apt install maxima` | a computer algebra system inside compilation: symbolic derivatives, closed forms, identity checks |
+| [Quicklisp](https://www.quicklisp.org/beta/#installation) | Common Lisp libraries in the expander — `(ql:quickload "trivia")`. Install it as usual; hyclb looks in `~/quicklisp`, or `$QUICKLISP_HOME` |
+| `pip install torch lightning` | the PyTorch examples |
+
+`pip install -e 'hycl[fast]'` installs numpy and numba together; add `test`
+for pytest.
+
+Maxima is GPL v2 and is run as a separate process — neither linked nor
+distributed with hyclb.
+
+### Running the tests
+
+```console
+$ pip install -e 'hycl[test]'
+$ cd hycl && python -m pytest tests
+```
+
+Suites needing something absent skip with a stated reason rather than failing.
+Measured on this checkout: a bare install (Hy and SBCL only) passes 46 and
+skips 5; with `[fast]` — numpy and numba — it passes 49 and skips 2; with
+torch and lightning as well, all 51 pass.
+
+### Common problems
+
+**`FileNotFoundError: 'sbcl'`** — SBCL is not on `PATH`. `python -m hyclb`
+reports this before anything else.
+
+**A test imports numpy and fails** rather than skipping — that means the
+package is installed but broken (a numba without a numpy, say). hyclb decides
+by importing, so fix the package or uninstall it.
+
+**Editing hyclb has no effect** — compiled `.lisp` files are cached as
+bytecode. The cache key includes a hash of hyclb's own sources, so this should
+not happen; if it does, remove the `__pycache__` beside your `.lisp` file.
+
 ## The other direction
 
 An existing Python program can be brought into the Lisp:
@@ -86,36 +191,6 @@ Python's own — `colorsys`, `bisect`, `heapq`, `statistics`, `textwrap`,
 each — compiles them with hyclb, and probes each one side by side with the
 module CPython imported. All ten agree. Nobody wrote them for this translator,
 which is the point.
-
-## Installing
-
-Not on PyPI: the name `hyclb` there still holds the 2020 implementation, which
-this supersedes and which no current Hy can run. Install from the repository.
-
-```
-git clone https://github.com/niitsuma/hycl   # the repository is named hycl
-pip install -e hycl                          # the package it installs is hyclb
-```
-
-The two names differ, inherited from 2020: you clone `hycl` and you
-`import hyclb`.
-
-SBCL must be on `PATH`; it is the macroexpander and cannot be installed by pip.
-
-```
-apt install sbcl        # Debian/Ubuntu
-brew install sbcl       # macOS
-```
-
-Optional:
-
-* **Quicklisp** — install it in the usual way to load Common Lisp libraries
-  into the expander with `(ql:quickload "trivia")`.
-* **Numba** (`pip install numba`) — for `(declare (optimize (speed 3)))`.
-  Without it those functions still run, just not as machine code.
-* **Maxima** — for driving a computer algebra system from a macro. Maxima is
-  GPL v2 and is run as a separate process; it is neither linked nor
-  distributed with hyclb, and the feature is optional.
 
 ## Using it
 
@@ -173,9 +248,7 @@ python -c "import hyclb; from hyclb.api import cl_load; cl_load('tests/onlisp.li
 ```
 
 Each suite prints `(pass ...)` or `(FAIL ...)` per case; `tests/test_suites.py`
-turns that into pytest results. A suite that needs Maxima, Quicklisp or a
-Python package the machine does not have is skipped with a reason rather than
-failed, which is what lets CI run the rest.
+turns that into pytest results, and skips a suite whose dependency is absent.
 
 One caveat worth knowing: a `.lisp` file shadows an installed package of the
 same name, exactly as a `.py` file would — and an *empty* `.lisp` file shadows
