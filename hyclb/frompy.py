@@ -36,6 +36,9 @@ from . import translate
 __all__ = ["translate_source", "translate_file", "Unsupported"]
 
 
+_NO_DEFAULT = object()   # distinct from a default that *is* None
+
+
 class Unsupported(Exception):
     """A Python construct with no faithful translation yet."""
 
@@ -154,21 +157,29 @@ class _Names:
     """Python identifiers, adjusted only where hyclb already owns the name.
 
     Two kinds of collision, resolved differently.  `print` and `list` mean the
-    Lisp functions in hyclb, but the program means Python's builtins, so those
-    are reached through the `builtins` module -- exact, and the reader still
-    sees the name it expects.  A name the program itself binds cannot be
+    Lisp functions in hyclb, but the program usually means Python's builtins,
+    so those are reached through the `builtins` module -- exact, and the reader
+    still sees the name it expects.  A name the program itself binds cannot be
     redirected that way, so it is renamed, and the renaming is reported.
+
+    Which of the two applies depends on scope: a local variable called `list`
+    in one function must not turn every other `list` in the file into that
+    local.  The caller keeps a stack of the scopes in force.
     """
 
-    def __init__(self, bound=()):
-        self.bound = set(bound)
+    def __init__(self, module_scope=()):
+        self.module_scope = set(module_scope)
+        self.stack = []
         self.renamed = {}
         self.used_builtins = False
+
+    def bound(self, name):
+        return name in self.module_scope or any(name in s for s in self.stack)
 
     def __call__(self, name):
         if name not in _RESERVED:
             return Sym(name)
-        if name not in self.bound and hasattr(_BUILTINS, name):
+        if not self.bound(name) and hasattr(_BUILTINS, name):
             self.used_builtins = True
             return Sym("builtins." + name)
         if name not in self.renamed:
@@ -182,23 +193,43 @@ class _Names:
 import builtins as _BUILTINS  # noqa: E402
 
 
-def _bound_names(tree):
-    """Every name the program binds, so a builtin it shadows is not redirected."""
+def _scope_names(stmts, owner=None):
+    """The names one scope binds: its own, not a nested function's.
+
+    A nested def has its own scope, so the names inside it are not in this
+    one; its *name* is.  Parameters of OWNER, when given, belong here.
+    """
     out = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-            out.add(node.id)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
-                               ast.ClassDef)):
-            out.add(node.name)
-        elif isinstance(node, ast.arg):
-            out.add(node.arg)
-        elif isinstance(node, ast.alias):
-            out.add(node.asname or node.name.split(".")[0])
-        elif isinstance(node, ast.ExceptHandler) and node.name:
-            out.add(node.name)
-        elif isinstance(node, ast.Global):
-            out.update(node.names)
+    if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        a = owner.args
+        for group in (a.posonlyargs, a.args, a.kwonlyargs):
+            out.update(x.arg for x in group)
+        for extra in (a.vararg, a.kwarg):
+            if extra:
+                out.add(extra.arg)
+
+    def walk(node, top):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                  ast.ClassDef)):
+                out.add(child.name)
+                continue                     # its body is a scope of its own
+            if isinstance(child, ast.Lambda):
+                continue
+            if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store):
+                out.add(child.id)
+            elif isinstance(child, ast.alias):
+                out.add(child.asname or child.name.split(".")[0])
+            elif isinstance(child, ast.ExceptHandler) and child.name:
+                out.add(child.name)
+            elif isinstance(child, (ast.Global, ast.Nonlocal)):
+                out.update(child.names)
+            walk(child, False)
+
+    for s in stmts:
+        walk(ast.Module(body=[s], type_ignores=[]) if False else s, True)
+        if isinstance(s, ast.Name) and isinstance(s.ctx, ast.Store):
+            out.add(s.id)
     return out
 
 
@@ -224,10 +255,13 @@ _AUG = {**{k: v for k, v in _LISP_BINOP.items()}, **_PY_BINOP}
 
 
 class Translator(ast.NodeVisitor):
-    def __init__(self, bound=()):
-        self.name = _Names(bound)
+    def __init__(self, module_scope=()):
+        self.name = _Names(module_scope)
         self.blocks = []          # innermost `return` target
-        self.loops = []           # whether the innermost loop needs a continue tag
+        self.loops = []           # the innermost loop's "did it break" flag
+        self.scopes = self.name.stack
+        self.classes = []         # enclosing class names, for super()
+        self.selves = []          # each function's first parameter
 
     # -- entry ------------------------------------------------------------
 
@@ -306,6 +340,15 @@ class Translator(ast.NodeVisitor):
         return None
 
     def e_Call(self, node):
+        if isinstance(node.func, ast.Name) and node.func.id == "super" \
+                and not node.args and not node.keywords:
+            # Python's zero-argument super() reads a __class__ cell that only
+            # its own class-body compilation creates.  The two-argument form
+            # says the same thing and needs nothing hidden.
+            if not self.classes or not self.selves or self.selves[-1] is None:
+                raise Unsupported("super() outside a method")
+            return [Sym("py-call"), self.bi("super"),
+                    self.classes[-1], self.selves[-1]]
         starred = any(isinstance(a, ast.Starred) for a in node.args) or \
             any(k.arg is None for k in node.keywords)
         func = self.expr(node.func)
@@ -370,21 +413,73 @@ class Translator(ast.NodeVisitor):
             raise Unsupported(f"comparison {kind.__name__}")
         if all(k in _LISP_CMP for k in kinds) and len(set(kinds)) == 1:
             return [Sym("py-truthy"), [Sym(_LISP_CMP[kinds[0]]), *parts]]
-        raise Unsupported("chained comparison mixing operators; split it up")
+        return self._mixed_chain(kinds, parts)
+
+    def _mixed_chain(self, kinds, parts):
+        """a < b == c: each operand once, and c untouched if a < b is false.
+
+        Built inside out as nested LETs, so the short-circuiting is the LET
+        nesting rather than a repeated expression.
+        """
+        self._chain_counter = getattr(self, "_chain_counter", 0) + 1
+        names = [Sym(f"%c{self._chain_counter}_{i}") for i in range(len(parts))]
+
+        def step(i):
+            kind = kinds[i]
+            if kind in _LISP_CMP:
+                test = [Sym("py-truthy"),
+                        [Sym(_LISP_CMP[kind]), names[i], names[i + 1]]]
+            elif kind in _PY_CMP:
+                test = [Sym("py-binop"), _PY_CMP[kind], names[i], names[i + 1]]
+            else:
+                raise Unsupported(f"comparison {kind.__name__}")
+            if i + 1 == len(kinds):
+                return test
+            return [Sym("py-and"), test,
+                    [Sym("let"), [[names[i + 2], parts[i + 2]]], step(i + 1)]]
+
+        return [Sym("let"), [[names[0], parts[0]], [names[1], parts[1]]], step(0)]
 
     def e_IfExp(self, node):
         return [Sym("if"), self.cond(node.test),
                 self.expr(node.body), self.expr(node.orelse)]
 
     def e_Lambda(self, node):
-        return [Sym("lambda"), self._lambda_list(node.args),
-                self.expr(node.body)]
+        defaults = self._defaults(node.args)
+        self.scopes.append(_scope_names([], node))
+        self.selves.append(self._first_param(node))
+        try:
+            return [Sym("lambda"), self._lambda_list(node.args, defaults),
+                    self.expr(node.body)]
+        finally:
+            self.scopes.pop()
+            self.selves.pop()
+
+    def _elements(self, elts):
+        """A display's elements, splicing any starred one by concatenation."""
+        if not any(isinstance(e, ast.Starred) for e in elts):
+            return [Sym("py-list"), [Sym("list"), *[self.expr(e) for e in elts]]]
+        chunks, plain = [], []
+        for e in elts:
+            if isinstance(e, ast.Starred):
+                if plain:
+                    chunks.append([Sym("py-list"), [Sym("list"), *plain]])
+                    plain = []
+                chunks.append([Sym("py-list"), self.expr(e.value)])
+            else:
+                plain.append(self.expr(e))
+        if plain:
+            chunks.append([Sym("py-list"), [Sym("list"), *plain]])
+        out = chunks[0]
+        for c in chunks[1:]:
+            out = [Sym("py-binop"), "+", out, c]
+        return out
 
     def e_List(self, node):
-        return [Sym("py-list"), [Sym("list"), *[self.expr(e) for e in node.elts]]]
+        return self._elements(node.elts)
 
     def e_Tuple(self, node):
-        return [Sym("py-tuple"), [Sym("list"), *[self.expr(e) for e in node.elts]]]
+        return [Sym("py-tuple"), self._elements(node.elts)]
 
     def e_Set(self, node):
         return [Sym("py-set"), [Sym("list"), *[self.expr(e) for e in node.elts]]]
@@ -434,6 +529,11 @@ class Translator(ast.NodeVisitor):
             spec = inner.values[0].value
         return [Sym("py-call"), self.bi("format"), value, spec]
 
+    def e_NamedExpr(self, node):
+        """The walrus: assign, then be the value."""
+        return [Sym("progn"), self._assign(node.target, self.expr(node.value)),
+                self.expr(node.target)]
+
     def e_Yield(self, node):
         if node.value is None:
             return [Sym("py-yield")]
@@ -466,11 +566,23 @@ class Translator(ast.NodeVisitor):
         gen = node.generators[0]
         if gen.is_async:
             raise Unsupported("an async comprehension")
+        value = ready if ready is not None else self.expr(elt)
+        if isinstance(gen.target, (ast.Tuple, ast.List)):
+            # destructure inside the guard: LOOP evaluates WHEN before COLLECT,
+            # so the unpacked names are in scope for both
+            item = Sym("%c")
+            tests = [self.cond(c) for c in gen.ifs] or [Sym("t")]
+            guard = tests[0] if len(tests) == 1 else [Sym("py-and"), *tests]
+            return [Sym("loop"), Sym("for"), item, Sym("in"),
+                    [Sym("py-list"), self.expr(gen.iter)],
+                    Sym("when"), [Sym("progn"),
+                                  self._assign(gen.target, item), guard],
+                    Sym("collect"), value]
         form = [Sym("loop"), Sym("for"), self._target(gen.target),
                 Sym("in"), [Sym("py-list"), self.expr(gen.iter)]]
         for cond in gen.ifs:
             form += [Sym("when"), self.cond(cond)]
-        form += [Sym("collect"), ready if ready is not None else self.expr(elt)]
+        form += [Sym("collect"), value]
         return form
 
     # -- statements -------------------------------------------------------
@@ -539,33 +651,50 @@ class Translator(ast.NodeVisitor):
         return [Sym("when"), self.cond(node.test), *self.body(node.body)]
 
     def s_While(self, node):
-        if node.orelse:
-            raise Unsupported("while ... else")
-        self.loops.append(True)
+        flag = self._loop_flag(node)
+        self.loops.append(flag)
         try:
-            return [Sym("py-while"), self.cond(node.test), *self.body(node.body)]
+            loop = [Sym("py-while"), self.cond(node.test), *self.body(node.body)]
         finally:
             self.loops.pop()
+        return self._with_else(loop, flag, node.orelse)
 
     def s_For(self, node):
-        if node.orelse:
-            raise Unsupported("for ... else")
-        self.loops.append(True)
+        flag = self._loop_flag(node)
+        self.loops.append(flag)
         try:
             if isinstance(node.target, (ast.Tuple, ast.List)):
                 item = Sym("%item")
-                return [Sym("py-for"), [item, self.expr(node.iter)],
+                loop = [Sym("py-for"), [item, self.expr(node.iter)],
                         self._assign(node.target, item), *self.body(node.body)]
-            return [Sym("py-for"),
-                    [self._target(node.target), self.expr(node.iter)],
-                    *self.body(node.body)]
+            else:
+                loop = [Sym("py-for"),
+                        [self._target(node.target), self.expr(node.iter)],
+                        *self.body(node.body)]
         finally:
             self.loops.pop()
+        return self._with_else(loop, flag, node.orelse)
+
+    def _loop_flag(self, node):
+        """A loop with an else clause needs to know whether it broke out."""
+        if not node.orelse:
+            return None
+        self._flag_counter = getattr(self, "_flag_counter", 0) + 1
+        return Sym(f"%broke{self._flag_counter}")
+
+    def _with_else(self, loop, flag, orelse):
+        if flag is None:
+            return loop
+        return [Sym("let"), [[flag, False]], loop,
+                [Sym("unless"), [Sym("py-truthy"), flag], *self.body(orelse)]]
 
     def s_Break(self, node):
         if not self.loops:
             raise Unsupported("break outside a loop")
-        return [Sym("py-break")]
+        flag = self.loops[-1]
+        if flag is None:
+            return [Sym("py-break")]
+        return [Sym("progn"), [Sym("setq"), flag, True], [Sym("py-break")]]
 
     def s_Continue(self, node):
         if not self.loops:
@@ -586,9 +715,9 @@ class Translator(ast.NodeVisitor):
 
     def s_Raise(self, node):
         if node.exc is None:
-            raise Unsupported("a bare raise")
+            return [Sym("py-reraise")]
         if node.cause is not None:
-            raise Unsupported("raise ... from")
+            return [Sym("py-raise"), self.expr(node.exc), self.expr(node.cause)]
         return [Sym("py-raise"), self.expr(node.exc)]
 
     def s_Assert(self, node):
@@ -606,8 +735,10 @@ class Translator(ast.NodeVisitor):
             elif isinstance(t, ast.Attribute):
                 out.append([Sym("py-call"), self.bi("delattr"),
                             self.expr(t.value), t.attr])
+            elif isinstance(t, ast.Name):
+                out.append([Sym("py-del"), self.name(t.id)])
             else:
-                raise Unsupported("del of a plain name")
+                raise Unsupported(f"del of {type(t).__name__}")
         return out[0] if len(out) == 1 else [Sym("progn"), *out]
 
     def s_With(self, node):
@@ -625,9 +756,16 @@ class Translator(ast.NodeVisitor):
         return [Sym("py-with"), clauses, *self.body(node.body)]
 
     def s_Try(self, node):
-        if node.orelse:
-            raise Unsupported("try ... else")
         body = self.seq(node.body)
+        if node.orelse:
+            # the else clause runs only if the body raised nothing, and an
+            # exception in it is *not* caught, so it cannot simply be appended
+            flag = Sym("%no-error")
+            body = [Sym("progn"), body, [Sym("setq"), flag, True]]
+            after = [[Sym("when"), [Sym("py-truthy"), flag],
+                      *self.body(node.orelse)]]
+        else:
+            after = []
         if node.handlers:
             form = [Sym("handler-case"), body]
             for h in node.handlers:
@@ -635,6 +773,8 @@ class Translator(ast.NodeVisitor):
                 var = [self.name(h.name)] if h.name else [Sym("%e")]
                 form.append([kind, var, *self.body(h.body)])
             body = form
+        if after:
+            body = [Sym("let"), [[Sym("%no-error"), False]], body, *after]
         if node.finalbody:
             body = [Sym("unwind-protect"), body, *self.body(node.finalbody)]
         return body
@@ -642,45 +782,87 @@ class Translator(ast.NodeVisitor):
     def _exc_name(self, node):
         if isinstance(node, ast.Name):
             return self.name(node.id)
-        raise Unsupported("an except clause naming more than one type")
+        if isinstance(node, ast.Attribute):
+            return self.expr(node)
+        if isinstance(node, ast.Tuple):
+            return [self._exc_name(e) for e in node.elts]
+        raise Unsupported(f"an except clause naming {type(node).__name__}")
 
     # -- definitions ------------------------------------------------------
 
-    def _lambda_list(self, args):
-        if args.kwonlyargs or args.kwarg:
-            raise Unsupported("keyword-only or ** parameters")
-        if args.posonlyargs:
-            raise Unsupported("positional-only parameters")
-        out, plain = [], args.args
-        required = len(plain) - len(args.defaults)
+    def _returning(self, body, tag, stmts):
+        """Make the function's value Python's.
+
+        A Common Lisp body returns its last form; a Python function that falls
+        off the end returns None.  And a `return` in tail position needs no
+        block exit, since the value of the last form is already the value.
+        """
+        if stmts and isinstance(stmts[-1], ast.Return):
+            if body and isinstance(body[-1], list) \
+                    and body[-1][:2] == [Sym("return-from"), tag]:
+                body = body[:-1] + [body[-1][2]]
+            return body
+        return body + [Sym("py-none")]
+
+    def _defaults(self, args):
+        """Default expressions, which Python evaluates in the *enclosing*
+        scope -- so they are translated before the new scope is pushed."""
+        return ([self.expr(d) for d in args.defaults],
+                [_NO_DEFAULT if d is None else self.expr(d)
+                 for d in args.kw_defaults])
+
+    def _lambda_list(self, args, defaults=None):
+        """A Python signature as a lambda list.
+
+        Python's *args is a tuple where Common Lisp's &rest is a list, and
+        Python has keyword-only parameters that Common Lisp does not, so those
+        get markers of their own -- &py-rest, &py-kwonly, &py-kwargs -- rather
+        than being forced into the Lisp ones and quietly changing shape.
+        """
+        pos_d, kw_d = defaults if defaults is not None else self._defaults(args)
+        out = []
+        plain = list(args.posonlyargs) + list(args.args)
+        required = len(plain) - len(pos_d)
         for a in plain[:required]:
             out.append(self.name(a.arg))
-        if args.defaults:
+        if pos_d:
             out.append(Sym("&optional"))
-            for a, d in zip(plain[required:], args.defaults):
-                out.append([self.name(a.arg), self.expr(d)])
+            for a, d in zip(plain[required:], pos_d):
+                out.append([self.name(a.arg), d])
         if args.vararg:
-            out += [Sym("&rest"), self.name(args.vararg.arg)]
+            out += [Sym("&py-rest"), self.name(args.vararg.arg)]
+        if args.kwonlyargs:
+            out.append(Sym("&py-kwonly"))
+            for a, d in zip(args.kwonlyargs, kw_d):
+                out.append(self.name(a.arg) if d is _NO_DEFAULT
+                           else [self.name(a.arg), d])
+        if args.kwarg:
+            out += [Sym("&py-kwargs"), self.name(args.kwarg.arg)]
         return out
 
     def s_FunctionDef(self, node, head="defun"):
         name = self.name(node.name)
+        decorators = [self.expr(d) for d in node.decorator_list]
+        defaults = self._defaults(node.args)
         self.blocks.append(name)
+        self.scopes.append(_scope_names(node.body, node))
+        self.selves.append(self._first_param(node))
         try:
+            params = self._lambda_list(node.args, defaults)
             body = self.body(node.body)
         finally:
             self.blocks.pop()
-        # a return in tail position needs no block exit: Common Lisp already
-        # returns the value of the last form
-        if body and isinstance(body[-1], list) and body[-1][:1] == [Sym("return-from")] \
-                and body[-1][1] == name:
-            body[-1] = body[-1][2]
-        form = [Sym(head), name, self._lambda_list(node.args), *body]
-        if node.decorator_list:
-            decorators = [self.expr(d) for d in node.decorator_list]
-            form = [Sym("defun-decorated"), decorators, name,
-                    self._lambda_list(node.args), *body]
-        return form
+            self.scopes.pop()
+            self.selves.pop()
+        body = self._returning(body, name, node.body)
+        if decorators:
+            return [Sym("defun-decorated"), decorators, name, params, *body]
+        return [Sym(head), name, params, *body]
+
+    def _first_param(self, node):
+        """The name a zero-argument super() needs as its second argument."""
+        plain = list(node.args.posonlyargs) + list(node.args.args)
+        return self.name(plain[0].arg) if plain else None
 
     def s_AsyncFunctionDef(self, node):
         if node.decorator_list:
@@ -688,45 +870,50 @@ class Translator(ast.NodeVisitor):
         return self.s_FunctionDef(node, head="defun-async")
 
     def s_ClassDef(self, node):
-        if node.keywords:
-            raise Unsupported("a class with keyword arguments (metaclass=)")
-        if node.decorator_list:
-            raise Unsupported("a decorated class")
-        entries = []
-        for s in node.body:
-            if isinstance(s, ast.FunctionDef):
-                entries += [s.name, self._method(s)]
-            elif isinstance(s, ast.Assign) and len(s.targets) == 1 \
-                    and isinstance(s.targets[0], ast.Name):
-                entries += [s.targets[0].id, self.expr(s.value)]
-            elif isinstance(s, (ast.Pass, ast.Expr)):
-                continue                    # a docstring or `pass`
-            else:
-                raise Unsupported(f"{type(s).__name__} in a class body")
-        bases = [Sym("list"), *[self.expr(b) for b in node.bases]]
-        return [Sym("setq"), self.name(node.name),
-                [Sym("py-class"), node.name, bases, *entries]]
-
-    def _method(self, node):
-        """A method is a lambda; its `return` needs an explicit block."""
-        if node.decorator_list:
-            names = {self._dotted(d) or getattr(d, "id", None)
-                     for d in node.decorator_list}
-            if names - {"staticmethod"}:
-                raise Unsupported("a method decorator other than staticmethod")
-        tag = Sym("%ret")
-        self.blocks.append(tag)
+        """A class body is a scope, run top to bottom, where each statement can
+        see what the ones before it bound -- a method, a constant, anything.
+        So it is translated as an ordinary statement sequence inside a thunk
+        that hands back its locals, which is what Python itself does."""
+        self.scopes.append(_scope_names(node.body, node))
+        self.classes.append(self.name(node.name))
         try:
             body = self.body(node.body)
         finally:
+            self.scopes.pop()
+            self.classes.pop()
+        thunk = [Sym("lambda"), [], *body, [Sym("py-locals")]]
+        bases = [Sym("list"), *[self.expr(b) for b in node.bases]]
+        form = [Sym("py-class-body"), node.name, bases, thunk]
+        for k in node.keywords:
+            if k.arg is None:
+                raise Unsupported("** in a class header")
+            form += [Kw(k.arg), self.expr(k.value)]
+        for d in reversed(node.decorator_list):
+            form = [Sym("py-call"), self.expr(d), form]
+        return [Sym("setq"), self.name(node.name), form]
+
+    def _method(self, node):
+        """A method as a lambda, for the value of a decorator expression."""
+        tag = Sym("%ret")
+        defaults = self._defaults(node.args)
+        self.blocks.append(tag)
+        self.scopes.append(_scope_names(node.body, node))
+        self.selves.append(self._first_param(node))
+        try:
+            params = self._lambda_list(node.args, defaults)
+            body = self.body(node.body)
+        finally:
             self.blocks.pop()
-        if body and isinstance(body[-1], list) \
-                and body[-1][:2] == [Sym("return-from"), tag]:
-            body[-1] = body[-1][2]
-        inner = [Sym("lambda"), self._lambda_list(node.args),
-                 [Sym("block"), tag, *body]]
-        if node.decorator_list:
-            return [Sym("py-staticmethod"), inner]
+            self.scopes.pop()
+            self.selves.pop()
+        body = self._returning(body, tag, node.body)
+        inner = [Sym("lambda"), params, [Sym("block"), tag, *body]]
+        for d in reversed(node.decorator_list):
+            name = self._dotted(d) or getattr(d, "id", None)
+            if name == "staticmethod":
+                inner = [Sym("py-staticmethod"), inner]
+            else:
+                inner = [Sym("py-call"), self.expr(d), inner]
         return inner
 
     # -- imports ----------------------------------------------------------
@@ -746,7 +933,7 @@ class Translator(ast.NodeVisitor):
         out = [[Sym("py-import"), Sym(node.module)]]
         for a in node.names:
             if a.name == "*":
-                raise Unsupported("from ... import *")
+                return [Sym("py-import-star"), Sym(node.module)]
             out.append([Sym("setq"), self.name(a.asname or a.name),
                         Sym(f"{node.module}.{a.name}")])
         return [Sym("progn"), *out]
@@ -777,7 +964,7 @@ _PRELUDE = """;;;; Translated from Python by hyclb.frompy.
 def translate_source(source, filename="<string>"):
     """Return Common Lisp source, and the names that had to be renamed."""
     tree = ast.parse(source, filename)
-    t = Translator(_bound_names(tree))
+    t = Translator(_scope_names(tree.body))
     forms = t.module(tree)
     out = [_PRELUDE.rstrip()]
     if t.name.used_builtins:

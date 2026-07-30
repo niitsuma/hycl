@@ -38,3 +38,6 @@ packages = ["hyclb"]
 [tool.setuptools.package-data]
 # the expander runs bridge.lisp; the special operators live in cl.hy
 hyclb = ["*.lisp", "*.hy"]
+
+[tool.pytest.ini_options]
+markers = ["slow: translates a whole standard-library module"]

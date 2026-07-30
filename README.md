@@ -80,6 +80,13 @@ each case runs as Python, is translated, is compiled back by hyclb, and the two
 outputs must be identical — so the program is its own oracle. Anything with no
 faithful translation raises `Unsupported` instead of guessing.
 
+Whole modules go through. `tests/test_frompy_stdlib.py` translates ten of
+Python's own — `colorsys`, `bisect`, `heapq`, `statistics`, `textwrap`,
+`queue`, `copy`, `json.encoder`, `csv` and `random`, up to a thousand lines
+each — compiles them with hyclb, and probes each one side by side with the
+module CPython imported. All ten agree. Nobody wrote them for this translator,
+which is the point.
+
 ## Installing
 
 Not on PyPI: the name `hyclb` there still holds the 2020 implementation, which

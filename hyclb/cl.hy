@@ -70,6 +70,14 @@
         (= s "&optional") (setv mode "optional")
         (or (= s "&rest") (= s "&body")) (setv mode "rest")
         (= s "&aux") (setv mode "aux")
+        (= s "&py-rest") (setv mode "py-rest")
+        (= s "&py-kwargs") (setv mode "py-kwargs")
+        (= s "&py-kwonly")
+        (do (setv mode "py-kwonly")
+            ;; a bare * marker, when there is no *args to separate on
+            (when (not (any (gfor x out (and (isinstance x hym.Expression)
+                                             (= (str (get x 0)) "unpack-iterable")))))
+              (.append out (hym.Symbol "*"))))
         (= mode "required") (.append out p)
         (= mode "optional")
         (.append out (if (isinstance p hym.Symbol)
@@ -79,6 +87,18 @@
         (= mode "rest")
         (do (setv restname p)
             (.append out (hym.Expression [(hym.Symbol "unpack-iterable") p])))
+        ;; Python-shaped parameters, for code that came from Python.  &py-rest
+        ;; is Python's *args and stays a tuple -- unlike CL's &rest, which is a
+        ;; list -- so it is not fixed up afterwards.
+        (= mode "py-rest")
+        (.append out (hym.Expression [(hym.Symbol "unpack-iterable") p]))
+        (= mode "py-kwargs")
+        (.append out (hym.Expression [(hym.Symbol "unpack-mapping") p]))
+        (= mode "py-kwonly")
+        (.append out (if (isinstance p hym.Symbol)
+                         p
+                         (hym.List [(get p 0)
+                                    (if (> (len p) 1) (get p 1) 'NIL)])))
         True None))
     #(out restname)))
 
@@ -274,10 +294,13 @@
 ;; is not one: the protocol calls __enter__ and __exit__ on the object.
 
 (defmacro cl-py-with [clauses #* body]
+  ;; A clause is (var form) when it binds and just a form when it does not.
+  ;; Testing for a List rather than for a Symbol matters: the form may be an
+  ;; attribute access, which is an Expression, not a symbol.
   `(with [~@(interleave (lfor c clauses
-                              (if (isinstance c hym.Symbol)
-                                  #('_ c)
-                                  #((get c 0) (get c 1)))))]
+                              (if (isinstance c hym.List)
+                                  #((get c 0) (get c 1))
+                                  #('_ c))))]
      ~@body))
 
 ;; ---------------------------------------------------------------- defstruct
@@ -411,12 +434,19 @@
                               `(cl-cons ~(hy.models.String (str (get spec 0)))
                                         (cl-cons ~(get spec 1) NIL))))))))
 
+(eval-and-compile
+  (defn condition-designator [head]
+    "A clause head names one condition type, or several: except (A, B) as e."
+    (if (isinstance head hym.List)
+        `(cl-condition-class ~@(lfor x head (hym.String (str x))))
+        `(cl-condition-class ~(hym.String (str head))))))
+
 (defmacro cl-handler-case [protected #* clauses]
   `(try
      ~protected
      ~@(lfor c clauses
              `(except [~(if (> (len (get c 1)) 0) (get (get c 1) 0) (hy.gensym "c"))
-                       (cl-condition-class ~(hy.models.String (str (get c 0))))]
+                       ~(condition-designator (get c 0))]
                 ~@(cut c 2 None)))))
 
 (defmacro cl-handler-bind [bindings #* body]
@@ -598,3 +628,12 @@ signalling one.  Section `Limitations` of the paper says so.
 
 (defmacro cl-py-break [] '(break))
 (defmacro cl-py-continue [] '(continue))
+
+(defmacro cl-py-del [#* names] `(del ~@names))
+
+(defmacro cl-py-reraise [] '(raise))
+(defmacro cl-py-import-star [module] `(import ~module *))
+
+;; locals() must be evaluated in the frame that has the locals, so it cannot
+;; go through py-call: the class-body thunk hands back its own namespace.
+(defmacro cl-py-locals [] '(locals))

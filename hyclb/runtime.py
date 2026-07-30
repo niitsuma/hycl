@@ -718,9 +718,14 @@ def cl_py_truthy(x):
     return bool(x)
 
 
-def cl_py_raise(e):
-    """Python's raise.  CL ERROR signals a condition; this re-raises whatever
-    Python object it is given, which is what a translated `raise` needs."""
+def cl_py_raise(e, cause=None):
+    """Python's raise, and `raise ... from`.
+
+    Setting __cause__ and raising is what `raise e from c` does, so the two
+    forms need no separate mechanism.
+    """
+    if cause is not None:
+        e.__cause__ = cause
     raise e
 
 
@@ -765,26 +770,60 @@ py_false = False
 py_none = None
 
 
-def cl_py_class(name, bases, *kv):
-    """Build a Python class whose methods are Lisp functions.
+def cl_py_class_body(name, bases, thunk, *kv):
+    """A class whose body was run as Python runs it: in order, as a scope.
 
-    Subclassing a Python base from Lisp needs no new syntax: the methods are
-    ordinary closures and `type` does the rest.
+    The thunk executes the body and returns its locals, so a later statement
+    sees what an earlier one bound -- a method referring to a constant defined
+    two lines up, or an alias for a method defined above it.  Building the
+    namespace from outside cannot do that.
     """
-    ns = {}
-    i = 0
-    while i < len(kv):
-        key, fn = str(kv[i]), kv[i + 1]
-        # every Lisp form has a value, but Python insists __init__ has none
-        ns[key] = _void(fn) if key == "__init__" else fn
-        i += 2
-    if bases is NIL:                      # a class with no explicit base
+    extra = {}
+    for i in range(0, len(kv), 2):
+        extra[str(kv[i].name if isinstance(kv[i], Keyword) else kv[i])] = kv[i + 1]
+    if bases is NIL:
         base_list = []
     elif isinstance(bases, Cons):
         base_list = to_list(bases)
     else:
         base_list = list(bases)
-    return type(str(name), tuple(base_list), ns)
+    ns = {k: v for k, v in thunk().items() if k != "__class__"}
+    # hyclb functions return their last form's value; Python insists that
+    # __init__ returns None.  frompy already appends None for a body with no
+    # explicit return, but a hand-written __init__ need not.
+    if "__init__" in ns and callable(ns["__init__"]):
+        ns["__init__"] = _void(ns["__init__"])
+    factory = extra.pop("metaclass", type)
+    return factory(str(name), tuple(base_list), ns, **extra)
+
+
+def cl_py_class(name, bases, *kv):
+    """Build a Python class whose methods are Lisp functions.
+
+    Subclassing a Python base from Lisp needs no new syntax: the methods are
+    ordinary closures and `type` does the rest.  A trailing `:metaclass c`
+    names the metaclass, and any other trailing keyword is passed on, so a
+    class header with keyword arguments translates directly.
+    """
+    if bases is NIL:
+        base_list = []
+    elif isinstance(bases, Cons):
+        base_list = to_list(bases)
+    else:
+        base_list = list(bases)
+    ns, extra = {}, {}
+    i = 0
+    while i < len(kv):
+        key = kv[i]
+        if isinstance(key, Keyword):
+            extra[key.name] = kv[i + 1]
+        else:
+            # every Lisp form has a value, but Python insists __init__ has none
+            name_ = str(key)
+            ns[name_] = _void(kv[i + 1]) if name_ == "__init__" else kv[i + 1]
+        i += 2
+    factory = extra.pop("metaclass", type)
+    return factory(str(name), tuple(base_list), ns, **extra)
 
 
 def _void(fn):
@@ -1403,22 +1442,24 @@ _conditions = {
 }
 
 
-def cl_condition_class(name):
+def cl_condition_class(*names):
     """The exception class a condition designator names.
 
     Beyond the Common Lisp condition types, a Python exception may be named
     directly -- `(handler-case ... (ZeroDivisionError (e) ...))`.  Decompiled
     Python needs that, and a program that catches what a Python library raises
-    wants it anyway.
+    wants it anyway.  Several names give a tuple, which is what Python's
+    `except (A, B)` means.
     """
-    key = str(name)
+    if len(names) != 1:
+        return tuple(cl_condition_class(n) for n in names) or (Condition,)
+    key = str(names[0])
     got = _conditions.get(key)
     if got is None:
         import builtins
         candidate = getattr(builtins, key, None)
         if isinstance(candidate, type) and issubclass(candidate, BaseException):
             return candidate
-    if got is None:
         raise TypeError(f"unknown condition type: {key}")
     return got
 

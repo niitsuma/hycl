@@ -49,6 +49,10 @@ SPECIAL = {
     "defgeneric": "cl-defgeneric",
     "defvar": "cl-defvar",
     "defparameter": "cl-defparameter",
+    "py-del": "cl-py-del",
+    "py-reraise": "cl-py-reraise",
+    "py-locals": "cl-py-locals",
+    "py-import-star": "cl-py-import-star",
     "py-while": "cl-py-while",
     "py-for": "cl-py-for",
     "py-break": "cl-py-break",
@@ -148,6 +152,7 @@ RUNTIME = {
     "to-py": "to-py",
     "from-py": "from-py",
     "py-class": "cl-py-class",
+    "py-class-body": "cl-py-class-body",
     "py-call-ex": "cl-py-call-ex",
     "py-raise": "cl-py-raise",
     "py-binop": "cl-py-binop",
@@ -904,6 +909,8 @@ _STRUCTURAL = {
     "multiple-value-bind": {1: "names"},
     "%tail-recur": {1: "names"},
     "py-for": {1: "binding"},
+    "py-del": "all-names",
+    "py-import-star": {1: "name"},
     "py-global": "all-names",
     "py-nonlocal": "all-names",
     "handler-bind": {1: "bindings"},
@@ -997,10 +1004,15 @@ def _raw(x):
 
 
 def _clause(c):
-    """A HANDLER-CASE or RESTART-CASE clause: head and variables, then code."""
+    """A HANDLER-CASE or RESTART-CASE clause: head and variables, then code.
+
+    The head is one condition type, or a list of them -- what Python's
+    `except (A, B) as e` needs.
+    """
     parts = list(_iter(c))
+    head = _names(parts[0]) if isinstance(parts[0], Cons) else _name(parts[0])
     return M.List(
-        [_name(parts[0]), _names(parts[1] if len(parts) > 1 else NIL)]
+        [head, _names(parts[1] if len(parts) > 1 else NIL)]
         + [translate(f) for f in parts[2:]]
     )
 

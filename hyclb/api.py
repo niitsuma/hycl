@@ -37,6 +37,8 @@ STOP = [
     "py-with",
     "py-global",
     "py-while",
+    "py-del",
+    "py-import-star",
     "py-for",
     "py-nonlocal",
     "py-import",
