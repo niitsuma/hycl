@@ -1,0 +1,56 @@
+name: test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.10", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install SBCL
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sudo apt-get update && sudo apt-get install -y sbcl maxima
+          else
+            brew install sbcl
+          fi
+
+      - name: Install package
+        run: |
+          pip install -e '.[test,fast]' numpy
+
+      # torch/lightning are deliberately absent: those suites skip and say so.
+      # Quicklisp likewise -- ql/libraries skip unless a later step installs it.
+      - name: Run test suites
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        run: |
+          python -m pytest tests -v -rs
+
+      - name: Import hook round-trip
+        run: |
+          python - <<'EOF'
+          import pathlib, subprocess, sys, os
+          d = pathlib.Path("citest"); d.mkdir()
+          (d / "m.lisp").write_text("(defun sq (x) (* x x))\n")
+          code = ("import sys; sys.path.insert(0, 'citest');"
+                  "import hyclb, m; assert m.sq(7) == 49; print('import ok')")
+          subprocess.run([sys.executable, "-c", code], check=True)
+          # second import must not need SBCL at all
+          env = dict(os.environ, PATH="/var/empty")
+          subprocess.run([sys.executable, "-c", code], check=True, env=env)
+          print("cached import ok (no SBCL on PATH)")
+          EOF
