@@ -48,6 +48,38 @@ What that buys:
   `benchmarks/lasso.py` measures what those two declarations are worth on a
   LASSO regression written in Common Lisp.
 
+## The other direction
+
+An existing Python program can be brought into the Lisp:
+
+```
+python -m hyclb.frompy script.py -o script.lisp
+```
+
+`hyclb.frompy` walks Python's own `ast` and emits Common Lisp — not Hy, which
+is what [py2hy](https://github.com/niitsuma/py2hy) emits, but source that goes
+through the SBCL expander like any other `.lisp` file, so a macro applies to it
+straight away. It also means the declarations work: `examples/from_python.py`
+translates a numeric loop and adds one `(declare (optimize (speed 3) ...))`,
+which the Python it came from had no way to ask for.
+
+The translation preserves behaviour rather than beauty. Where Common Lisp and
+Python disagree, the Python operation is written explicitly, because a silent
+change of meaning is worse than an ugly form:
+
+| Python | Common Lisp would give | so the output says |
+| --- | --- | --- |
+| `10 / 4` | `5/2`, an exact rational | `(py-binop "/" 10 4)` |
+| `a == b` | numeric or structural `=` | `(py-binop "==" a b)` |
+| `if 0:` | `0` is true in Lisp | `(if (py-truthy 0) ...)` |
+| `0 or 5` | `0`, since `0` is true | `(py-or 0 5)` |
+
+On the fast path those wrappers collapse back into the operators, since there
+the arithmetic is Python's already. `tests/test_frompy.py` is the real check:
+each case runs as Python, is translated, is compiled back by hyclb, and the two
+outputs must be identical — so the program is its own oracle. Anything with no
+faithful translation raises `Unsupported` instead of guessing.
+
 ## Installing
 
 Not on PyPI: the name `hyclb` there still holds the 2020 implementation, which
@@ -118,6 +150,7 @@ print(module.square(7))
 | `generators.lisp` | `yield` through every binding and control form; `async` |
 | `clos.lisp` | classes, inheritance, multiple dispatch, method qualifiers |
 | `kanren_demo.py` | compiling a Quicklisp library that is not macro-only |
+| `test_frompy.py` | Python translated to Lisp and back, output compared |
 
 ## Tests
 

@@ -656,6 +656,92 @@ def cl_py_method(obj, name, *args):
     return cl_py_call(getattr(obj, str(name)), *args)
 
 
+# --------------------------------------------------------------------------
+# Python semantics, for code that came *from* Python
+#
+# Decompiled Python must behave as Python, and three of Common Lisp's operators
+# do not: CL / is exact (10/4 is 5/2, not 2.5), CL = is numeric where Python ==
+# dispatches on __eq__, and CL truth counts 0 and the empty list as true.
+# hyclb/frompy.py emits these instead of the Lisp operators wherever the two
+# disagree; where they agree -- +, -, *, and the orderings, which are already
+# Python's -- it uses the Lisp ones so the output stays readable.
+
+_PY_BINOPS = {}
+
+
+def _init_py_binops():
+    import operator as op
+
+    def contains(a, b):
+        return a in b
+
+    return {
+        "+": op.add, "-": op.sub, "*": op.mul, "/": op.truediv,
+        "//": op.floordiv, "%": op.mod, "**": op.pow, "@": op.matmul,
+        "<<": op.lshift, ">>": op.rshift, "&": op.and_, "|": op.or_,
+        "^": op.xor,
+        "==": op.eq, "!=": op.ne, "<": op.lt, "<=": op.le,
+        ">": op.gt, ">=": op.ge,
+        "in": contains, "not in": lambda a, b: a not in b,
+        "is": lambda a, b: a is b, "is not": lambda a, b: a is not b,
+    }
+
+
+def cl_py_binop(name, a, b):
+    global _PY_BINOPS
+    if not _PY_BINOPS:
+        _PY_BINOPS = _init_py_binops()
+    return _PY_BINOPS[str(name)](a, b)
+
+
+def cl_py_unop(name, a):
+    name = str(name)
+    if name == "not":
+        return not cl_py_truthy(a)
+    if name == "-":
+        return -a
+    if name == "+":
+        return +a
+    if name == "~":
+        return ~a
+    raise ValueError(f"unknown unary operator {name!r}")
+
+
+def cl_py_truthy(x):
+    """Python's notion of truth, which counts 0 and the empty list as false.
+
+    Returns a Python bool, which `truthy` then reads correctly, so a condition
+    wrapped in this behaves as Python rather than as Common Lisp.
+    """
+    if x is NIL:
+        return False
+    return bool(x)
+
+
+def cl_py_raise(e):
+    """Python's raise.  CL ERROR signals a condition; this re-raises whatever
+    Python object it is given, which is what a translated `raise` needs."""
+    raise e
+
+
+def cl_py_call_ex(f, args, kwargs):
+    """f(*args, **kwargs) -- the general call, for starred arguments."""
+    return f(*to_py(args), **{str(k): v for k, v in to_py(kwargs).items()})
+
+
+def cl_py_dict(*kv):
+    return {to_py(kv[i]): kv[i + 1] for i in range(0, len(kv), 2)}
+
+
+def cl_py_set(x):
+    return set(to_py(x))
+
+
+def cl_py_slice(low=NIL, high=NIL, step=NIL):
+    none = lambda v: None if v is NIL else v          # noqa: E731
+    return slice(none(low), none(high), none(step))
+
+
 def cl_py_getitem(obj, key):
     return obj[to_py(key)]
 
@@ -692,7 +778,12 @@ def cl_py_class(name, bases, *kv):
         # every Lisp form has a value, but Python insists __init__ has none
         ns[key] = _void(fn) if key == "__init__" else fn
         i += 2
-    base_list = to_list(bases) if isinstance(bases, Cons) else list(bases)
+    if bases is NIL:                      # a class with no explicit base
+        base_list = []
+    elif isinstance(bases, Cons):
+        base_list = to_list(bases)
+    else:
+        base_list = list(bases)
     return type(str(name), tuple(base_list), ns)
 
 
@@ -1313,8 +1404,20 @@ _conditions = {
 
 
 def cl_condition_class(name):
+    """The exception class a condition designator names.
+
+    Beyond the Common Lisp condition types, a Python exception may be named
+    directly -- `(handler-case ... (ZeroDivisionError (e) ...))`.  Decompiled
+    Python needs that, and a program that catches what a Python library raises
+    wants it anyway.
+    """
     key = str(name)
     got = _conditions.get(key)
+    if got is None:
+        import builtins
+        candidate = getattr(builtins, key, None)
+        if isinstance(candidate, type) and issubclass(candidate, BaseException):
+            return candidate
     if got is None:
         raise TypeError(f"unknown condition type: {key}")
     return got

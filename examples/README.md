@@ -14,6 +14,7 @@ so cannot quietly rot. They are written to be read:
 | --- | --- |
 | `lagrangian.lisp` | a Lagrangian is written down; Maxima derives the equations of motion at compile time; what runs is a numeric integrator |
 | `sequences.lisp` | a recurrence is solved symbolically, then becomes both a lazy stream and a machine-code kernel |
+| `from_python.py` | an existing Python loop translated into Lisp, then declared fast |
 | `lasso.lisp` | one algorithm, three compilations: what `(optimize (speed 3))` and `(float-accuracy 0)` are each worth |
 | `maxima.lisp` | symbolic differentiation performed while the program compiles |
 | `maxima-apps.lisp` | analytic gradients replacing a backward pass, common subexpression elimination, series, identity checking |

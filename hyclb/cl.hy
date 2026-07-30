@@ -575,3 +575,26 @@ signalling one.  Section `Limitations` of the paper says so.
 
 (defmacro cl-tail-return [value]
   `(return ~value))
+
+;; Python's AND and OR, for decompiled code: they short-circuit on Python's
+;; notion of truth, where Common Lisp's count 0 and the empty list as true.
+(defmacro cl-py-and [#* forms] `(and ~@(lfor f forms `(cl-py-truthy-value ~f))))
+(defmacro cl-py-or [#* forms] `(or ~@(lfor f forms `(cl-py-truthy-value ~f))))
+
+;; the value is returned, as Python does, but tested Python-style
+(defmacro cl-py-truthy-value [form] form)
+
+(defmacro cl-py-global [#* names] `(global ~@names))
+(defmacro cl-py-nonlocal [#* names] `(nonlocal ~@names))
+
+;; Python's loops, for decompiled code.  A Python `while` is not CL's LOOP: it
+;; must survive the fast path, where the TAGBODY encoding does not, and its
+;; break and continue are Python's rather than a block exit and a tag.
+(defmacro cl-py-while [test #* body]
+  `(while ~test ~@body))
+
+(defmacro cl-py-for [spec #* body]
+  `(for [~(get spec 0) ~(get spec 1)] ~@body))
+
+(defmacro cl-py-break [] '(break))
+(defmacro cl-py-continue [] '(continue))

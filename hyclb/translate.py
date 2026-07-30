@@ -49,6 +49,14 @@ SPECIAL = {
     "defgeneric": "cl-defgeneric",
     "defvar": "cl-defvar",
     "defparameter": "cl-defparameter",
+    "py-while": "cl-py-while",
+    "py-for": "cl-py-for",
+    "py-break": "cl-py-break",
+    "py-continue": "cl-py-continue",
+    "py-and": "cl-py-and",
+    "py-or": "cl-py-or",
+    "py-global": "cl-py-global",
+    "py-nonlocal": "cl-py-nonlocal",
     "py-yield": "cl-py-yield",
     "py-yield-from": "cl-py-yield-from",
     "py-await": "cl-py-await",
@@ -140,6 +148,14 @@ RUNTIME = {
     "to-py": "to-py",
     "from-py": "from-py",
     "py-class": "cl-py-class",
+    "py-call-ex": "cl-py-call-ex",
+    "py-raise": "cl-py-raise",
+    "py-binop": "cl-py-binop",
+    "py-unop": "cl-py-unop",
+    "py-truthy": "cl-py-truthy",
+    "py-dict": "cl-py-dict",
+    "py-set": "cl-py-set",
+    "py-slice": "cl-py-slice",
     "py-true": "py-true",
     "py-false": "py-false",
     "py-none": "py-none",
@@ -454,6 +470,9 @@ SPECIALS = set()
 
 # In fast mode the Lisp value representation is dropped: predicates return
 # Python booleans, conditionals test Python truth, and arithmetic is Python's.
+# Python's operator spellings as Hy writes them; the rest are the same token
+_PY_OP_HY = {"not in": "not-in", "is not": "is-not"}
+
 FAST_SPECIAL = {"if": "cl-if-fast", "defun": "cl-defun-fast"}
 # a self-tail-recursive defun compiles to a loop instead of the block form
 LOOP_SPECIAL = {"%defun-loop": "cl-defun-loop"}
@@ -686,6 +705,7 @@ def _assigned_specials(x, found):
 
 
 def _call(form):
+    global _fast, _approx
     head = form.car
     if isinstance(head, Symbol):
         name = head.name
@@ -699,6 +719,17 @@ def _call(form):
             return translate(form.cdr.cdr.car)
         if name == "declare":
             return M.Expression([sym("cl-declare")])
+        # On the fast path the Lisp value representation is gone and the
+        # arithmetic is Python's already, so the wrappers frompy emits to
+        # preserve Python semantics collapse into the operators themselves.
+        # Numba could not call them anyway.
+        if _fast and name == "py-truthy":
+            return translate(form.cdr.car)
+        if _fast and name in ("py-binop", "py-unop"):
+            parts = list(_iter(form.cdr))
+            if parts and isinstance(parts[0], str):
+                op = _PY_OP_HY.get(parts[0], parts[0])
+                return M.Expression([sym(op)] + [translate(a) for a in parts[1:]])
         if name == "funcall" and _is_setf_aref(form):
             args = list(_iter(form.cdr))
             return M.Expression([sym("cl-aset")] + [translate(a) for a in args[1:]])
@@ -709,7 +740,6 @@ def _call(form):
             _record_declaim(form.cdr)
             return M.Expression([sym("cl-declare")])
         if name == "defun":
-            global _fast, _approx
             raw = list(_iter(form.cdr))
             spec = _spec_declaration(raw[2:]) if len(raw) > 2 else None
             if spec is not None and _safety_level(raw[2:]) > 0:
@@ -873,6 +903,9 @@ _STRUCTURAL = {
     "function": {1: "fname"},
     "multiple-value-bind": {1: "names"},
     "%tail-recur": {1: "names"},
+    "py-for": {1: "binding"},
+    "py-global": "all-names",
+    "py-nonlocal": "all-names",
     "handler-bind": {1: "bindings"},
     "tagbody": "tags",
     "py-import": {1: "name"},
@@ -915,6 +948,8 @@ def _args(rest, head_name):
             out.append(translate(arg) if i == 1 else _clause(arg))
         elif shape == "raw":
             out.append(_raw(arg))
+        elif shape == "all-names":
+            out.append(_name(arg))
         elif shape == "tags":
             # a tagbody body is a mix of tags (bare symbols) and forms
             out.append(sym(py_name(arg)) if isinstance(arg, Symbol) else translate(arg))
@@ -1003,8 +1038,15 @@ def _fbindings(x):
     return M.List(out)
 
 
+def _binding(x):
+    """One (name form) pair, as PY-FOR's iteration spec is."""
+    parts = list(_iter(x))
+    return M.List([_name(parts[0])] + [translate(e) for e in parts[1:]])
+
+
 _STRUCT_KIND = {
     "raw": _raw,
+    "binding": _binding,
     "name": _name,
     "fname": _fname,
     "names": _names,
