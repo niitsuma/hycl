@@ -150,6 +150,7 @@ print(module.square(7))
 | `maxima-apps.lisp` | analytic gradients, subexpression elimination, series, identity checking |
 | `lagrangian.lisp` | equations of motion derived from a Lagrangian, then simulated |
 | `sequences.lisp` | a recurrence solved symbolically, streamed lazily, compiled to machine code |
+| `defsum.lisp` | summed-area tables derived from the sum itself: the box-sum recurrence is obtained by telescoping in Maxima, refused when it does not hold, and the generated code is checked against the naive sum before it is accepted |
 | `tailcall.lisp` | self-tail recursion compiled to a loop; mutual recursion left alone |
 | `lasso.lisp` | LASSO by coordinate descent, compiled three ways; `benchmarks/lasso.py` times them against NumPy, scikit-learn and cuML |
 | `sweep.lisp` | a hyperparameter grid built at compile time, driving PyTorch Lightning |

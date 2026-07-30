@@ -52,6 +52,8 @@ NEEDS = {
     "sequences": [("Maxima", lambda: shutil.which("maxima")),
                   ("numpy", lambda: _has_module("numpy"))],
     "lasso": [("numpy", lambda: _has_module("numpy"))],
+    "defsum": [("Maxima", lambda: shutil.which("maxima")),
+               ("numpy", lambda: _has_module("numpy"))],
 }
 
 

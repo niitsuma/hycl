@@ -668,6 +668,270 @@ The equation is written with AREF, so (aref a (+ n 1)) is Maxima's a[n+1]."
 (defun maxima-expand (expr) (maxima-apply "$expand" expr))
 (defun maxima-factor (expr) (maxima-apply "$factor" expr))
 
+;;; ------------------------------------------------------------------
+;;; DEFSUM: summed-area tables derived from the sum itself.
+;;;
+;;; The source form is the specification -- a nested sum over axis-aligned
+;;; boxes from the origin.  The recurrence that makes it O(n^N) to build and
+;;; O(2^N) to query is not pattern-matched out of a loop; it is DERIVED, by
+;;; telescoping the sum symbolically: split off each axis's last term and let
+;;; Maxima cancel the rest.  A summand for which that reduction fails -- one
+;;; that mentions an outer bound, as a convolution does -- is rejected at
+;;; expansion time instead of being compiled wrongly.
+;;;
+;;; The derived code is then checked against the naive sum, in this image, on
+;;; random data, before any Python exists.  The algebra says the recurrence is
+;;; right; the self-check says the generated code implements it.
+
+(defun mx-var (sym)
+  (intern (concatenate 'string "$" (string sym)) :common-lisp-user))
+
+(defun mx-raw (fmt &rest args)
+  "A Maxima call on already-converted expression trees."
+  (maxima-eval
+   (let ((*package* (find-package :common-lisp-user))
+         (*readtable* *plain-readtable*))
+     (apply #'format nil fmt args))))
+
+(defun mx-sum-p (e idx)
+  (and (consp e) (consp (car e)) (symbolp (caar e))
+       (string= (symbol-name (caar e)) "%SUM")
+       (eq (third e) idx)))
+
+(defun mx-split (e idx)
+  "Split off the last term of every sum over IDX: sum(f,k,0,h) becomes
+sum(f,k,0,h-1) + f[k:=h].  Structural, so it needs no simplifier."
+  (cond ((mx-sum-p e idx)
+         (destructuring-bind (head f i lo hi) e
+           (declare (ignore head))
+           (list (mx-op "MPLUS")
+                 (list (mx-op "%SUM") f i lo (list (mx-op "MPLUS") hi -1))
+                 (subst hi i f))))
+        ((consp e) (cons (mx-split (car e) idx) (mx-split (cdr e) idx)))
+        (t e)))
+
+(defun defsum-telescopes-p (axes summand)
+  "Does the inclusion-exclusion difference of the sum reduce to the summand?
+
+AXES is ((run bound dim) ...).  The difference is taken one axis at a time:
+split the sums over this axis's index, subtract the expression with the bound
+lowered by one, and have Maxima expand; after the last axis nothing but the
+summand at the boundary point may remain."
+  (let ((e (lisp->maxima summand)))
+    (dolist (ax (reverse axes))
+      (setf e (list (mx-op "%SUM") e (mx-var (first ax)) 0 (mx-var (second ax)))))
+    (dolist (ax axes)
+      (let* ((idx (mx-var (first ax)))
+             (bound (mx-var (second ax)))
+             (lowered (subst (list (mx-op "MPLUS") bound -1) bound e)))
+        (setf e (mx-raw "(mfuncall '$expand '~s)"
+                        (list (mx-op "MPLUS")
+                              (mx-split e idx)
+                              (list (mx-op "MTIMES") -1 lowered))))))
+    (let ((boundary (lisp->maxima summand)))
+      (dolist (ax axes)
+        (setf boundary (subst (mx-var (second ax)) (mx-var (first ax)) boundary)))
+      (eq (mx-raw "(mfuncall '$is (mfuncall '$equal '~s '~s))" e boundary)
+          (intern "T" :common-lisp-user)))))
+
+;;; code generation --------------------------------------------------------
+
+(defun subsets (list)
+  (if (null list)
+      (list nil)
+      (let ((rest (subsets (cdr list))))
+        (append rest (mapcar (lambda (s) (cons (car list) s)) rest)))))
+
+(defun flat-index (points dims)
+  "Row-major index into flat storage: ((p1*d2 + p2)*d3 + p3) ..."
+  (let ((acc (first points)))
+    (loop for p in (rest points)
+          for d in (rest dims)
+          do (setf acc `(+ (* ,acc ,d) ,p)))
+    acc))
+
+(defun summand-free (summand run-vars)
+  "The summand's free variables, in order of first occurrence, and the arity
+each is used with under AREF (NIL for a scalar)."
+  (let ((seen '()) (arity '()))
+    (labels ((walk (x)
+               (cond ((symbolp x)
+                      (unless (or (member x run-vars) (assoc x seen))
+                        (push (cons x nil) seen)))
+                     ((consp x)
+                      (if (and (symbolp (car x))
+                               (string= (symbol-name (car x)) "AREF"))
+                          (progn
+                            (unless (assoc (second x) seen)
+                              (push (cons (second x) t) seen))
+                            (setf arity
+                                  (acons (second x) (length (cddr x)) arity))
+                            (mapc #'walk (cddr x)))
+                          (mapc #'walk (cdr x)))))))
+      (walk summand)
+      (values (mapcar #'car (reverse seen))
+              (lambda (v) (cdr (assoc v arity)))))))
+
+(defun defsum-names (name suffix)
+  (intern (concatenate 'string (symbol-name name) suffix)
+          (symbol-package name)))
+
+(defun gen-defsum (name axes summand element-type)
+  "The build, query and naive definitions, as forms to translate."
+  (let* ((runs (mapcar #'first axes))
+         (bounds (mapcar #'second axes))
+         (dims (mapcar #'third axes))
+         (float-p (member (string element-type)
+                          '("DOUBLE-FLOAT" "SINGLE-FLOAT" "FLOAT")
+                          :test #'string=))
+         (zero (if float-p 0.0 0))
+         (params (summand-free summand runs))
+         (s (intern "%S" (symbol-package name)))
+         (at-point (sublis (mapcar #'cons runs bounds) summand))
+         (los (mapcar (lambda (b) (defsum-names b "-LO")) bounds))
+         (his (mapcar (lambda (b) (defsum-names b "-HI")) bounds)))
+    (labels ((guarded (sub form)
+               (let ((tests (mapcar (lambda (b) `(> ,b 0))
+                                    (mapcar #'second sub))))
+                 (cond ((null tests) form)
+                       ((null (rest tests)) `(when ,(first tests) ,form))
+                       (t `(when (and ,@tests) ,form))))))
+      (values
+       ;; build: S over the whole array, by the derived recurrence
+       `(defun ,(defsum-names name "-BUILD") (,@params ,s ,@dims)
+          (declare (type integer ,@dims) (optimize (speed 3) (safety 0)))
+          ,(let ((inner
+                   `(progn
+                      (let ((acc ,at-point))
+                        ,@(loop for sub in (remove nil (subsets axes))
+                                collect
+                                (guarded sub
+                                  `(setq acc
+                                     (,(if (oddp (length sub)) '+ '-)
+                                      acc
+                                      (aref ,s
+                                            ,(flat-index
+                                              (mapcar (lambda (ax)
+                                                        (if (member ax sub)
+                                                            `(- ,(second ax) 1)
+                                                            (second ax)))
+                                                      axes)
+                                              dims))))))
+                        (setf (aref ,s ,(flat-index bounds dims)) acc)))))
+             (dolist (ax (reverse axes) inner)
+               (setf inner `(dotimes (,(second ax) ,(third ax)) ,inner))))
+          ,s)
+       ;; query: any box [lo,hi] per axis, by inclusion-exclusion
+       `(defun ,(defsum-names name "-QUERY") (,s ,@dims ,@(mapcan #'list los his))
+          (declare (type integer ,@dims ,@los ,@his)
+                   (optimize (speed 3) (safety 0)))
+          (let ((acc ,zero))
+            ,@(loop for sub in (subsets axes)
+                    collect
+                    (let ((tests (mapcar
+                                  (lambda (ax)
+                                    `(> ,(nth (position ax axes) los) 0))
+                                  sub))
+                          (term `(setq acc
+                                   (,(if (oddp (length sub)) '- '+)
+                                    acc
+                                    (aref ,s
+                                          ,(flat-index
+                                            (mapcar (lambda (ax)
+                                                      (let ((i (position ax axes)))
+                                                        (if (member ax sub)
+                                                            `(- ,(nth i los) 1)
+                                                            (nth i his))))
+                                                    axes)
+                                            dims))))))
+                      (cond ((null tests) term)
+                            ((null (rest tests)) `(when ,(first tests) ,term))
+                            (t `(when (and ,@tests) ,term)))))
+            acc))
+       ;; naive: the sum as written, for the oracle and for honesty
+       `(defun ,(defsum-names name "-NAIVE") (,@params ,@(mapcan #'list los his))
+          (declare (type integer ,@los ,@his) (optimize (speed 3) (safety 0)))
+          (let ((acc ,zero))
+            ,(let ((inner `(setq acc (+ acc ,summand))))
+               (loop for ax in (reverse axes)
+                     for i = (position ax axes)
+                     for cnt = (intern (concatenate 'string "%C"
+                                                    (symbol-name (first ax)))
+                                       (symbol-package name))
+                     do (setf inner
+                              `(dotimes (,cnt (+ (- ,(nth i his) ,(nth i los)) 1))
+                                 (let ((,(first ax) (+ ,(nth i los) ,cnt)))
+                                   ,inner))))
+               inner)
+            acc))))))
+
+(defun defsum-selfcheck (name build query naive axes summand element-type)
+  "Run the derived code against the naive sum, here in SBCL, on random data."
+  (eval build) (eval query) (eval naive)
+  (let* ((runs (mapcar #'first axes))
+         (rank (length axes))
+         (dims (subseq '(7 6 5) 0 rank))
+         (float-p (member (string element-type)
+                          '("DOUBLE-FLOAT" "SINGLE-FLOAT" "FLOAT")
+                          :test #'string=))
+         (seed 987654321))
+    (flet ((rnd (m) (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648))
+                    (mod seed m)))
+      (multiple-value-bind (params arity-of) (summand-free summand runs)
+        (let* ((values
+                 (mapcar (lambda (v)
+                           (let ((k (funcall arity-of v)))
+                             (if k
+                                 (let* ((side (+ (reduce #'max dims) 2))
+                                        (total (expt side k))
+                                        (a (make-array total)))
+                                   (dotimes (i total)
+                                     (setf (aref a i)
+                                           (let ((r (- (rnd 19) 9)))
+                                             (if float-p (float r) r))))
+                                   ;; the summand indexes it as rank-K, so
+                                   ;; give it that shape
+                                   (if (> k 1)
+                                       (make-array (make-list k :initial-element side)
+                                                   :displaced-to a)
+                                       a))
+                                 3)))
+                         params))
+               (s (make-array (reduce #'* dims)
+                              :initial-element (if float-p 0.0 0))))
+          (apply (defsum-names name "-BUILD") (append values (list s) dims))
+          (dotimes (trial 40)
+            (let* ((lohis (mapcan (lambda (d)
+                                    (let* ((lo (rnd d))
+                                           (hi (+ lo (rnd (- d lo)))))
+                                      (list lo hi)))
+                                  dims))
+                   (q (apply (defsum-names name "-QUERY") s (append dims lohis)))
+                   (v (apply (defsum-names name "-NAIVE") (append values lohis))))
+              (unless (if float-p (< (abs (- q v)) 1e-6) (eql q v))
+                (error "defsum ~a: the derived table answers ~a where the sum ~
+                        itself gives ~a, at box ~a -- the generated code does ~
+                        not implement the recurrence"
+                       name q v lohis)))))))
+    t))
+
+(defmacro cl-user::defsum (name axes summand
+                           &key (element-type 'cl-user::double-float))
+  "Define NAME-BUILD, NAME-QUERY and NAME-NAIVE from a box-sum specification.
+
+AXES is ((run-index query-bound dimension) ...).  The recurrence behind the
+table is derived by telescoping the sum in Maxima and the generated code is
+checked against the naive sum before it is accepted."
+  (unless (defsum-telescopes-p axes summand)
+    (error "defsum ~a: the sum does not telescope, so no summed-area table ~
+            computes it.  The summand may use the running indices ~a but not ~
+            the bounds ~a."
+           name (mapcar #'first axes) (mapcar #'second axes)))
+  (multiple-value-bind (build query naive)
+      (gen-defsum name axes summand element-type)
+    (defsum-selfcheck name build query naive axes summand element-type)
+    `(progn ,build ,query ,naive)))
+
 (import '(maxima-diff maxima-integrate maxima-simplify maxima-expand
           maxima-factor maxima-apply lisp->maxima maxima->lisp
           maxima-taylor maxima-optimize maxima-horner maxima-solve
