@@ -20,12 +20,18 @@ $ benchmarks/tfs_when_idle.sh results/tfs-idle.txt LOADER.py
 
 `results/` is not tracked; it is machine-specific output.
 
-## What is settled and what is not
+## What the paper quotes
 
-`results/lasso-idle.txt` and `results/tfs-idle.txt` were taken on a quiet
-machine and are what the paper quotes. The three figures in `paper_figures.py`
-are not yet: every attempt so far has been contended, and
-`results/figures-CONTENDED-do-not-quote.txt` is kept as an example of what
-that looks like — the load rose from 4.94 to 23.45 mid-run and two figures
-for the same computation came out 2.7x apart. The paper marks those three in
-place rather than presenting them as measured.
+All of it now comes from runs whose peak load stayed under the threshold:
+`results/all-idle.txt` (peak 3.16) for the LASSO table, the CUDA arms and the
+three smaller figures, and `results/tfs-idle.txt` for the Scm2Cpp
+comparison. `results/figures-CONTENDED-do-not-quote.txt` is kept as an
+example of what a bad run looks like — the load rose from 4.94 to 23.45
+mid-run and two figures for the same computation came out 2.7x apart — which
+is what the peak-load line now exists to catch.
+
+One measurement had to be rewritten rather than merely repeated. The lazy
+stream was being compared against a compiled loop summing i²+1, which LLVM
+folds to a closed form: the compiled arm came out at 0.2 ns per term, meaning
+it had been optimised away, and the ratio was measuring nothing. The term is
+now a multiplicative hash reduced modulo a prime, which cannot be folded.

@@ -79,18 +79,21 @@ def two_compilations():
 
 
 STREAM = """
-;; A term small enough to stay in a machine word: the point is the cost of
-;; the stream cell against the cost of the arithmetic, and 2^n would make the
-;; arithmetic bignum work that swamps both.
+;; The term has to stay in a machine word -- 2^n would make the arithmetic
+;; bignum work that swamps what is being measured -- and it has to resist
+;; being folded, or the compiled arm measures an empty loop.  A multiplicative
+;; hash reduced modulo a prime does both: LLVM cannot turn the sum into a
+;; closed form, and every term is one multiply and one remainder.
 (defun term (n)
   (declare (type integer n) (optimize (speed 3) (safety 0)))
-  (+ (* n n) 1))
+  (mod (* (+ n 1) 2654435761) 1000003))
 
 (defun sum-compiled (n)
   (declare (type integer n) (optimize (speed 3) (safety 0)))
   (let ((acc 0) (i 0))
-    (py-while (< i n) (setq acc (+ acc (+ (* i i) 1)))
-              (setq i (+ i 1)))
+    (py-while (< i n)
+      (setq acc (+ acc (mod (* (+ i 1) 2654435761) 1000003)))
+      (setq i (+ i 1)))
     acc))
 
 (defun mersenne-from (n) (cons-stream (term n) (mersenne-from (+ n 1))))
@@ -113,7 +116,7 @@ def stream_versus_kernel():
     except Exception as e:
         print(f"  skipped: {type(e).__name__}: {str(e)[:70]}")
         return
-    n = 2000
+    n = 20000
     tc, vc = best(lambda: m.sum_compiled(n))
     ts, vs = best(lambda: m.sum_stream(n))
     if vc != vs:
