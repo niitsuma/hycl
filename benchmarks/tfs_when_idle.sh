@@ -30,6 +30,19 @@ while (( waited < MAX_WAIT )); do
     sleep $INTERVAL; waited=$((waited + INTERVAL))
 done
 
+watch_load() {
+    local peak=0
+    while :; do
+        local l=$(cut -d' ' -f1 /proc/loadavg)
+        awk "BEGIN{exit !($l > $peak)}" && peak=$l
+        echo "$peak" > "$1"
+        sleep 10
+    done
+}
+PEAK=$(mktemp)
+watch_load "$PEAK" & WATCHER=$!
+trap 'kill $WATCHER 2>/dev/null; rm -f "$PEAK"' EXIT
+
 {
     echo "# Temporal feature selection: hyclb against the C++ Scm2Cpp compiles to"
     echo "# date:      $(date -Is)"
@@ -48,4 +61,12 @@ from hyclb.api import cl_load, new_module
 m = new_module('tfs'); cl_load('$here/examples/tfs_lasso.lisp', m)
 m.timings(5)
 m.compare(5)" 2>&1 | grep -vE '^hyclb;'
+    echo
+    peak=$(cat "$PEAK" 2>/dev/null || echo "?")
+    echo "# loadavg at end:  $(cut -d' ' -f1-3 /proc/loadavg)"
+    echo "# peak during run: $peak"
+    if awk "BEGIN{exit !($peak > $THRESHOLD)}" 2>/dev/null; then
+        echo "# WARNING: the load rose above $THRESHOLD while measuring."
+        echo "# These numbers describe the background as much as the code."
+    fi
 } > "$OUT" 2>&1

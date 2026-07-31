@@ -34,6 +34,23 @@ while (( waited < MAX_WAIT )); do
     waited=$((waited + INTERVAL))
 done
 
+# Watch the load for the duration and say so if it rose: a run that starts
+# quiet and ends contended reports the background, not the code.  This is not
+# hypothetical -- one run went from 4.94 to 23.45 and its numbers were wrong
+# by a factor of two.
+watch_load() {
+    local peak=0
+    while :; do
+        local l=$(cut -d' ' -f1 /proc/loadavg)
+        awk "BEGIN{exit !($l > $peak)}" && peak=$l
+        echo "$peak" > "$1"
+        sleep 10
+    done
+}
+PEAK=$(mktemp)
+watch_load "$PEAK" & WATCHER=$!
+trap 'kill $WATCHER 2>/dev/null; rm -f "$PEAK"' EXIT
+
 {
     echo "# LASSO benchmark"
     echo "# date:      $(date -Is)"
@@ -55,4 +72,12 @@ done
     echo
     echo "# --- the smaller figures the paper quotes -------------------------"
     "$PY" "$here/benchmarks/paper_figures.py" 2>&1 | grep -vE '^hyclb;|Warning|warn'
+    echo
+    peak=$(cat "$PEAK" 2>/dev/null || echo "?")
+    echo "# loadavg at end:  $(cut -d' ' -f1-3 /proc/loadavg)"
+    echo "# peak during run: $peak"
+    if awk "BEGIN{exit !($peak > $THRESHOLD)}" 2>/dev/null; then
+        echo "# WARNING: the load rose above $THRESHOLD while measuring."
+        echo "# These numbers describe the background as much as the code."
+    fi
 } > "$OUT" 2>&1
