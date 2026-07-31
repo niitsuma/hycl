@@ -99,8 +99,10 @@ Both find `w=5` and `w=20`, and agree on every printed digit:
 comparison is of two compilations of one algorithm rather than of two
 programs; `timings` breaks the hyclb side into its phases. Point
 `HYCLB_SCM2CPP_PY` at the generated loader as for `scm2cpp_interop.lisp`.
-Measured on a contended machine, so read the ratio and not the absolute
-times: hyclb 859 ms against 1{,}276 ms for the C++, agreeing to 7e-15.
+The coefficient vectors agree to 7e-15 whatever the machine is doing; the
+times do not. `benchmarks/tfs_when_idle.sh OUT LOADER.py` waits for a load
+average below 4 and a GPU below 10% before measuring, and records the
+conditions with the numbers, so its output is the one to quote.
 
 The prefix sums are worth a look. Scm2Cpp reaches the summed-area table by
 *recognising* the naive O(n²) nest (`-I x`); hyclb reaches the same table by
