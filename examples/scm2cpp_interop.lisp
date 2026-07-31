@@ -25,12 +25,18 @@
 (defun load-scm2cpp (path)
   "Declare the signature of the Scm2Cpp kernel.
 
-The declaration is what -M's generated loader writes for us; doing it by
-hand here keeps the example runnable against a library built either way.
-Arrays are passed as element pointers and mutated in place, so BETA and
-RESID come back written."
+`-M` emits a ctypes loader that does this for every function whose signature
+crosses the C ABI.  It wrapped SOFT-THRESHOLD and skipped LASSO, which is the
+documented behaviour and worth understanding: LASSO's arrays are parameters,
+so inference has nothing to pin their types to and the function comes out a
+template, and a template has no C ABI.  Instantiating it once at `double *`
+in the C++ wrapper is all that is missing; the declaration below is then the
+same one the generated loader would have written.
+
+Arrays are passed as element pointers and mutated in place, so BETA and RESID
+come back written."
   (let* ((lib (py-call ctypes.CDLL path))
-         (fn (py-attr lib "lasso_capi"))
+         (fn (py-attr lib "scm2cpp_lasso"))
          (p (py-call ctypes.POINTER ctypes.c-double)))
     (py-set-attr fn "argtypes"
                  (py-list (list p p p p ctypes.c-double

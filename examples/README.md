@@ -43,13 +43,31 @@ callable from Python is callable from hyclb without a bridge, which is the
 practical consequence of compiling *to* Python rather than interoperating
 with it.
 
-Build the library, then run the example against it:
+Scm2Cpp bundles its own cKanren, so no setup is needed beyond the checkout:
 
 ```console
+$ git clone https://github.com/niitsuma/scm2cpp
+$ cd scm2cpp && raco link --user vendor/cKanren   # or just ./run-tests.sh
 $ racket scm2cpp-file.scm -t scm2c.typ -M lasso.scm
-$ g++ -O2 -std=c++11 -shared -fPIC -I. \
+```
+
+`-M` writes `lasso_capi.cpp` and `lasso.py` beside the usual pair. It wraps
+every function whose signature crosses the C ABI and names the rest rather
+than dropping them silently; a kernel taking its arrays as parameters comes
+out a template, so one line instantiating it is added by hand:
+
+```cpp
+#include "lasso_capi.cpp"
+extern "C" int scm2cpp_lasso(double *x, double *beta, double *resid,
+                             double *xnorm, double lam, int iters, int n, int p)
+{ return lasso<double *, double *, double *, double *>(
+      x, beta, resid, xnorm, lam, iters, n, p); }
+```
+
+```console
+$ g++ -O2 -std=c++11 -shared -fPIC -I. -I/path/to/scm2cpp.hpp-lib \
       -include boost/operators.hpp -include boost/optional.hpp \
-      -o liblasso.so lasso_capi.cpp
+      -o liblasso.so wrap.cpp
 $ HYCLB_SCM2CPP_LIB=$PWD/liblasso.so python -c \
     "from hyclb.api import cl_load, new_module; \
      m = new_module('x'); cl_load('examples/scm2cpp_interop.lisp', m); m.main()"
