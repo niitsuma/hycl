@@ -5,14 +5,22 @@ substitutions, unification, streams.  They cannot expand away, so the library
 itself is compiled through the system.  Nothing Lisp remains at run time.
 """
 
-import glob
+import os
 import sys
 
-from hyclb.api import cl_eval, new_module, set_readtable_case
+from hyclb.api import cl_eval, new_module, set_readtable_case, _lisp
 
-SRC = glob.glob(
-    "/home/niitsumalocal/quicklisp/dists/quicklisp/software/si-kanren-*/src"
-)[0]
+
+def source_directory(system):
+    """Where Quicklisp put a system, according to Quicklisp.
+
+    Asking is the only portable way: the version is in the directory name and
+    the dist root moves with QUICKLISP_HOME.  The expander has already loaded
+    the system, so ASDF there knows.
+    """
+    path = _lisp().eval(f'(namestring (asdf:system-source-directory "{system}"))')
+    return str(path).strip('"')
+
 
 QUERIES = [
     ("(run* (q) (== q 5))", "(si-kanren:run* (q) (si-kanren:== q 5))"),
@@ -38,11 +46,12 @@ def main():
     mod = new_module("kanren")
     # the expander needs the macros; Python needs the functions
     cl_eval('(ql:quickload "si-kanren")', mod)
+    src = os.path.join(source_directory("si-kanren"), "src")
     # an existing library is written in standard Common Lisp, which is
     # case-insensitive: C-of and c-of are one symbol
     set_readtable_case("upcase")
     for name in ("si-kanren", "wrappers"):
-        with open(f"{SRC}/{name}.lisp") as f:
+        with open(os.path.join(src, f"{name}.lisp")) as f:
             cl_eval(f.read(), mod)
     print("si-kanren compiled to Python")
 
