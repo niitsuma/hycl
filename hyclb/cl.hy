@@ -621,6 +621,15 @@ signalling one.  Section `Limitations` of the paper says so.
 ;; must survive the fast path, where the TAGBODY encoding does not, and its
 ;; break and continue are Python's rather than a block exit and a tag.
 (defmacro cl-py-while [test #* body]
+  ;; Through TRUTHY, not Python's own truth.  Decompiled Python arrives with
+  ;; its test already wrapped in PY-TRUTHY and so gives a bool, which TRUTHY
+  ;; passes through; hand-written Lisp gives T or NIL, and NIL is a symbol,
+  ;; which Python counts as true -- the loop would never end.
+  `(while (truthy ~test) ~@body))
+
+;; ... except on the fast path, where there is no NIL to distinguish and
+;; Numba cannot call TRUTHY anyway.
+(defmacro cl-py-while-fast [test #* body]
   `(while ~test ~@body))
 
 (defmacro cl-py-for [spec #* body]

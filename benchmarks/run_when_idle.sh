@@ -52,4 +52,7 @@ done
     echo "# --- CUDA: the sweep loop moved onto the device --------------------"
     echo "# gpu busy at start: $(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader 2>/dev/null | head -1)"
     "$PY" "$here/benchmarks/lasso_cuda.py" 2>&1 | grep -vE '^hyclb;|Warning|warn'
+    echo
+    echo "# --- the smaller figures the paper quotes -------------------------"
+    "$PY" "$here/benchmarks/paper_figures.py" 2>&1 | grep -vE '^hyclb;|Warning|warn'
 } > "$OUT" 2>&1

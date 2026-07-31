@@ -478,7 +478,8 @@ SPECIALS = set()
 # Python's operator spellings as Hy writes them; the rest are the same token
 _PY_OP_HY = {"not in": "not-in", "is not": "is-not"}
 
-FAST_SPECIAL = {"if": "cl-if-fast", "defun": "cl-defun-fast"}
+FAST_SPECIAL = {"if": "cl-if-fast", "defun": "cl-defun-fast",
+                "py-while": "cl-py-while-fast"}
 # a self-tail-recursive defun compiles to a loop instead of the block form
 LOOP_SPECIAL = {"%defun-loop": "cl-defun-loop"}
 FAST_APPROX_SPECIAL = {"defun": "cl-defun-approx"}

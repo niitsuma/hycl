@@ -31,3 +31,27 @@
 (deftest non-tail-untouched 55 (fib 10))
 (deftest simultaneous-rebind 500500 (count-down 1000 0))
 (deftest mutual-still-works t (evenp2 100))
+
+;;; PY-WHILE tests through TRUTHY, so a Common Lisp predicate ends the loop.
+;;; A CL predicate returns NIL, which is a symbol and so true to Python; the
+;;; loop would never end if the test went straight to Python's `while`.
+
+(defun count-with-cl-predicate (n)
+  (let ((i 0))
+    (py-while (< i n) (setq i (+ i 1)))
+    i))
+
+(defun count-with-python-truth (n)
+  (let ((i 0))
+    (py-while (py-truthy (< i n)) (setq i (+ i 1)))
+    i))
+
+(defun count-fast (n)
+  (declare (type integer n) (optimize (speed 3) (safety 0)))
+  (let ((i 0))
+    (py-while (< i n) (setq i (+ i 1)))
+    i))
+
+(deftest py-while-cl-predicate 7 (count-with-cl-predicate 7))
+(deftest py-while-python-truth 7 (count-with-python-truth 7))
+(deftest py-while-fast-path 7 (count-fast 7))
