@@ -50,26 +50,20 @@ Scm2Cpp bundles its own cKanren, so no setup is needed beyond the checkout:
 $ git clone https://github.com/niitsuma/scm2cpp
 $ cd scm2cpp && raco link --user vendor/cKanren   # or just ./run-tests.sh
 $ racket scm2cpp-file.scm -t scm2c.typ -M lasso.scm
+$ g++ -O2 -std=c++11 -shared -fPIC -I. -I/path/to/scm2cpp \
+      -include boost/operators.hpp -include boost/optional.hpp \
+      -o liblasso.so lasso_capi.cpp
 ```
 
-`-M` writes `lasso_capi.cpp` and `lasso.py` beside the usual pair. It wraps
-every function whose signature crosses the C ABI and names the rest rather
-than dropping them silently; a kernel taking its arrays as parameters comes
-out a template, so one line instantiating it is added by hand:
-
-```cpp
-#include "lasso_capi.cpp"
-extern "C" int scm2cpp_lasso(double *x, double *beta, double *resid,
-                             double *xnorm, double lam, int iters, int n, int p)
-{ return lasso<double *, double *, double *, double *>(
-      x, beta, resid, xnorm, lam, iters, n, p); }
-```
+`-M` writes `lasso_capi.cpp` and `lasso.py` beside the usual pair. Array
+parameters are inferred from how they are indexed, so a kernel taking bare
+arrays crosses the C ABI without help; the loader makes each argument
+contiguous and float64 on the way in, checks its size, and mutates it in
+place. Nothing is written by hand — point `HYCLB_SCM2CPP_PY` at the generated
+`lasso.py` and the example imports it:
 
 ```console
-$ g++ -O2 -std=c++11 -shared -fPIC -I. -I/path/to/scm2cpp.hpp-lib \
-      -include boost/operators.hpp -include boost/optional.hpp \
-      -o liblasso.so wrap.cpp
-$ HYCLB_SCM2CPP_LIB=$PWD/liblasso.so python -c \
+$ HYCLB_SCM2CPP_PY=$PWD/lasso.py python -c \
     "from hyclb.api import cl_load, new_module; \
      m = new_module('x'); cl_load('examples/scm2cpp_interop.lisp', m); m.main()"
 ```
@@ -104,7 +98,9 @@ Both find `w=5` and `w=20`, and agree on every printed digit:
 `compare` runs both solvers in one process on one design matrix, so the
 comparison is of two compilations of one algorithm rather than of two
 programs; `timings` breaks the hyclb side into its phases. Point
-`HYCLB_SCM2CPP_LIB` at the shared library as for `scm2cpp_interop.lisp`.
+`HYCLB_SCM2CPP_PY` at the generated loader as for `scm2cpp_interop.lisp`.
+Measured on a contended machine, so read the ratio and not the absolute
+times: hyclb 859 ms against 1{,}276 ms for the C++, agreeing to 7e-15.
 
 The prefix sums are worth a look. Scm2Cpp reaches the summed-area table by
 *recognising* the naive O(n²) nest (`-I x`); hyclb reaches the same table by

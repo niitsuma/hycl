@@ -203,33 +203,26 @@ two implementations produce identical data rather than merely similar data."
 
 ;;; --- against the C++ the same program compiles to --------------------
 ;;; Scm2Cpp's tfs-lasso.scm is this computation in Scheme.  Point
-;;; HYCLB_SCM2CPP_LIB at the shared library built from it (see
+;;; HYCLB_SCM2CPP_PY at the ctypes loader -M generated (see
 ;;; examples/README.md) and the two solvers are run on the same data, so the
 ;;; comparison is of two compilations of one algorithm rather than of two
 ;;; programs.
 
-(py-import ctypes)
+(py-import importlib.util)
 (py-import os)
 
-(defun load-scm2cpp (path)
-  (let* ((lib (py-call ctypes.CDLL path))
-         (fn (py-attr lib "scm2cpp_lasso"))
-         (ptr (py-call ctypes.POINTER ctypes.c-double)))
-    (py-set-attr fn "argtypes"
-                 (py-list (list ptr ptr ptr ptr ctypes.c-double
-                                ctypes.c-int ctypes.c-int ctypes.c-int)))
-    (py-set-attr fn "restype" ctypes.c-int)
-    fn))
+(defun load-scm2cpp (loader-path)
+  (let* ((spec (importlib.util.spec-from-file-location "scm2cpp_kernel"
+                                                       loader-path))
+         (kernel (importlib.util.module-from-spec spec)))
+    (py-call (py-attr (py-attr spec "loader") "exec_module") kernel)
+    kernel))
 
-(defun as-ptr (a)
-  (py-method (py-attr a "ctypes") "data_as"
-             (py-call ctypes.POINTER ctypes.c-double)))
-
-(defun solve-cpp (fn xd y)
+(defun solve-cpp (kernel xd y)
   (let ((xnorm (column-norms xd (numpy.zeros *p*) *nobs* *p*))
         (beta (numpy.zeros *p*))
         (resid (numpy.copy y)))
-    (py-call fn (as-ptr xd) (as-ptr beta) (as-ptr resid) (as-ptr xnorm)
+    (py-call (py-attr kernel "lasso") xd beta resid xnorm
              *lam* *iters* *nobs* *p*)
     beta))
 
@@ -237,25 +230,19 @@ two implementations produce identical data rather than merely similar data."
   (let* ((xd (build-features (lambda (x)
                                (prefix-naive x (numpy.zeros *n*) *n*))))
          (y (target xd))
-         (lib (py-call os.environ.get "HYCLB_SCM2CPP_LIB"))
+         (lib (py-call os.environ.get "HYCLB_SCM2CPP_PY"))
          (mine (solve xd y)))
     (print (list 'hyclb-ms
                  (* 1000.0 (best-of (lambda () (solve xd y)) reps))))
     (if (py-truthy lib)
-        (let* ((fn (load-scm2cpp lib))
-               (theirs (solve-cpp fn xd y)))
+        (let* ((kernel (load-scm2cpp lib))
+               (theirs (solve-cpp kernel xd y))
+               (diff (py-call float
+                              (py-method (numpy.abs (numpy.subtract mine theirs))
+                                         "max"))))
           (print (list 'scm2cpp-cpp-ms
-                       (* 1000.0 (best-of (lambda () (solve-cpp fn xd y))
+                       (* 1000.0 (best-of (lambda () (solve-cpp kernel xd y))
                                           reps))))
-          (print (list 'max-abs-difference
-                       (py-call float
-                                (py-method (numpy.abs (numpy.subtract mine theirs))
-                                           "max"))))
-          (print (list 'agree
-                       (if (< (py-call float
-                                       (py-method (numpy.abs
-                                                   (numpy.subtract mine theirs))
-                                                  "max"))
-                              1e-12)
-                           'yes 'no))))
-        (print (list 'skipped "set HYCLB_SCM2CPP_LIB")))))
+          (print (list 'max-abs-difference diff))
+          (print (list 'agree (if (< diff 1e-12) 'yes 'no))))
+        (print (list 'skipped "set HYCLB_SCM2CPP_PY")))))

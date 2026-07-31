@@ -13,44 +13,31 @@
 ;;;; the ordinary compilation.  They are put side by side below, and their
 ;;;; answers must agree.
 ;;;;
-;;;; Set HYCLB_SCM2CPP_LIB to the shared library.  See examples/README.md for
-;;;; how to produce it.
+;;;; Set HYCLB_SCM2CPP_PY to the loader -M generated.  See examples/README.md
+;;;; for how to produce it.
 
-(py-import ctypes)
 (py-import numpy)
-(py-import os)
 
 ;;; --- the foreign kernel ----------------------------------------------
+;;;
+;;; -M writes a ctypes loader beside the library, so there is nothing to
+;;; declare here: the generated module is imported and its functions are
+;;; called.  It makes each array contiguous and float64 on the way in and
+;;; mutates it in place, so BETA and RESID come back written.
 
-(defun load-scm2cpp (path)
-  "Declare the signature of the Scm2Cpp kernel.
+(py-import importlib.util)
+(py-import os)
 
-`-M` emits a ctypes loader that does this for every function whose signature
-crosses the C ABI.  It wrapped SOFT-THRESHOLD and skipped LASSO, which is the
-documented behaviour and worth understanding: LASSO's arrays are parameters,
-so inference has nothing to pin their types to and the function comes out a
-template, and a template has no C ABI.  Instantiating it once at `double *`
-in the C++ wrapper is all that is missing; the declaration below is then the
-same one the generated loader would have written.
+(defun load-scm2cpp (loader-path)
+  "Import the module -M generated, from wherever it was built."
+  (let* ((spec (importlib.util.spec-from-file-location "scm2cpp_kernel"
+                                                       loader-path))
+         (kernel (importlib.util.module-from-spec spec)))
+    (py-call (py-attr (py-attr spec "loader") "exec_module") kernel)
+    kernel))
 
-Arrays are passed as element pointers and mutated in place, so BETA and RESID
-come back written."
-  (let* ((lib (py-call ctypes.CDLL path))
-         (fn (py-attr lib "scm2cpp_lasso"))
-         (p (py-call ctypes.POINTER ctypes.c-double)))
-    (py-set-attr fn "argtypes"
-                 (py-list (list p p p p ctypes.c-double
-                                ctypes.c-int ctypes.c-int ctypes.c-int)))
-    (py-set-attr fn "restype" ctypes.c-int)
-    fn))
-
-(defun as-ptr (a)
-  (py-method (py-attr a "ctypes") "data_as"
-             (py-call ctypes.POINTER ctypes.c-double)))
-
-(defun lasso-scm2cpp (fn x beta resid xnorm lam iters n p)
-  (py-call fn (as-ptr x) (as-ptr beta) (as-ptr resid) (as-ptr xnorm)
-           lam iters n p)
+(defun lasso-scm2cpp (kernel x beta resid xnorm lam iters n p)
+  (py-call (py-attr kernel "lasso") x beta resid xnorm lam iters n p)
   beta)
 
 ;;; --- the same algorithm, compiled by hyclb ---------------------------
@@ -116,15 +103,15 @@ come back written."
          (x (first problem))
          (y (second problem))
          (xnorm (column-norms x n p))
-         (lib (py-call os.environ.get "HYCLB_SCM2CPP_LIB")))
+         (lib (py-call os.environ.get "HYCLB_SCM2CPP_PY")))
     (let ((mine (run-arm (function lasso-hyclb) x y xnorm lam iters n p)))
       (print (list 'hyclb-first-coefficients
                    (py-call float (aref mine 0))
                    (py-call float (aref mine 1))))
       (if (py-truthy lib)
-          (let* ((fn (load-scm2cpp lib))
+          (let* ((kernel (load-scm2cpp lib))
                  (theirs (run-arm (lambda (x beta resid xnorm lam iters n p)
-                                    (lasso-scm2cpp fn x beta resid xnorm
+                                    (lasso-scm2cpp kernel x beta resid xnorm
                                                    lam iters n p))
                                   x y xnorm lam iters n p)))
             (print (list 'scm2cpp-first-coefficients
@@ -134,7 +121,7 @@ come back written."
             (print (list 'agree (if (< (max-abs-diff mine theirs) 1e-12)
                                     'yes 'no))))
           (print (list 'skipped
-                       "set HYCLB_SCM2CPP_LIB to the Scm2Cpp shared library"))))))
+                       "set HYCLB_SCM2CPP_PY to the loader -M generated"))))))
 
 ;;; --- what each costs --------------------------------------------------
 
@@ -157,7 +144,7 @@ come back written."
          (x (first problem))
          (y (second problem))
          (xnorm (column-norms x n p))
-         (lib (py-call os.environ.get "HYCLB_SCM2CPP_LIB")))
+         (lib (py-call os.environ.get "HYCLB_SCM2CPP_PY")))
     (print (list 'size n p 'sweeps iters))
     (print (list 'hyclb-speed3-ms
                  (* 1000.0 (best-of (lambda ()
@@ -165,13 +152,13 @@ come back written."
                                                x y xnorm lam iters n p))
                                     reps))))
     (when (py-truthy lib)
-      (let ((fn (load-scm2cpp lib)))
+      (let ((kernel (load-scm2cpp lib)))
         (print (list 'scm2cpp-cpp-ms
                      (* 1000.0
                         (best-of (lambda ()
                                    (run-arm
                                     (lambda (x beta resid xnorm lam iters n p)
-                                      (lasso-scm2cpp fn x beta resid xnorm
+                                      (lasso-scm2cpp kernel x beta resid xnorm
                                                      lam iters n p))
                                     x y xnorm lam iters n p))
                                  reps))))))))
