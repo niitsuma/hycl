@@ -45,8 +45,9 @@ What that buys:
   second compilation that Numba turns into machine code, and adding
   `(float-accuracy 0)` — an `optimize` quality of our own, which the standard
   permits an implementation to define — lets the reductions be vectorised.
-  `benchmarks/lasso.py` measures what those two declarations are worth on a
-  LASSO regression written in Common Lisp.
+  [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) has the measured
+  figures: what the declarations are worth, where the GPU helps and where it
+  does not, and how the result compares with scikit-learn and with C++.
 
 ## Installing
 

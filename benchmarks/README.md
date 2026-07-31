@@ -1,5 +1,8 @@
 # Benchmarks
 
+**[RESULTS.md](RESULTS.md) is the measured summary.** This file is about how
+to reproduce it.
+
 Absolute times on this machine mean nothing unless it is quiet: the same code
 has measured 632 ms and 1,135 ms in one afternoon. Everything here therefore
 waits for the machine before measuring, watches the load while measuring, and
