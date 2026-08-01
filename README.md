@@ -129,6 +129,18 @@ so the program is its own oracle. Ten standard-library modules — `colorsys`,
 and then adds one `(declare (optimize (speed 3) ...))`, which the Python it
 came from had no way to ask for.
 
+### Compiling without the import hook
+
+To compile a string or a file directly, rather than through `import`:
+
+```python
+from hyclb.api import cl_eval, cl_load, new_module
+
+module = new_module("scratch")
+cl_eval("(defun square (x) (* x x))", module)
+print(module.square(7))
+```
+
 ### The rest
 
 `tests/` doubles as the example set:
@@ -282,18 +294,6 @@ What that buys:
   [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) has the measured
   figures: what the declarations are worth, where the GPU helps and where it
   does not, and how the result compares with scikit-learn and with C++.
-
-## Compiling without the import hook
-
-To compile a string or a file directly, rather than through `import`:
-
-```python
-from hyclb.api import cl_eval, cl_load, new_module
-
-module = new_module("scratch")
-cl_eval("(defun square (x) (* x x))", module)
-print(module.square(7))
-```
 
 ## Tests
 
