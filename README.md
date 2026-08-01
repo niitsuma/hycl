@@ -150,34 +150,6 @@ came from had no way to ask for.
 | `kanren_demo.py` | compiling a Quicklisp library that is not macro-only |
 | `test_frompy.py` | Python translated to Lisp and back, output compared |
 
-## Why
-
-Python has the libraries; Common Lisp has the macros. Existing bridges make you
-choose which runtime is in charge, and the choice decides which ecosystem
-becomes second-class. Because macroexpansion finishes before a program runs, it
-can be delegated to a real Common Lisp while the program itself runs on Python.
-
-What that buys:
-
-* **Macros written for Common Lisp work unchanged**, including libraries. A
-  macro-only Quicklisp library expands away and never reaches the Python side,
-  so `trivia`, `alexandria`, `iterate`, `anaphora`, `metabang-bind` and
-  `let-over-lambda` are used as-is. A library with a runtime — `si-kanren`, a
-  miniKanren — is compiled through the system instead.
-* **Python objects are ordinary Lisp values.** No marshalling layer: a Torch
-  tensor is stored in a Lisp variable and passed to Lisp functions unchanged.
-* **CLOS with multiple dispatch**, which Python has no equivalent of.
-* **Conditions are Python exceptions**, so `handler-case` catches what a Python
-  library raises.
-* **Common Lisp's own declarations drive the back end.** `(declare (type ...))`
-  becomes a Python type annotation; `(declare (optimize (speed 3)))` selects a
-  second compilation that Numba turns into machine code, and adding
-  `(float-accuracy 0)` — an `optimize` quality of our own, which the standard
-  permits an implementation to define — lets the reductions be vectorised.
-  [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) has the measured
-  figures: what the declarations are worth, where the GPU helps and where it
-  does not, and how the result compares with scikit-learn and with C++.
-
 ## Installing
 
 hyclb needs two things: Hy, which pip installs, and SBCL, which it cannot.
@@ -282,6 +254,34 @@ by importing, so fix the package or uninstall it.
 **Editing hyclb has no effect** — compiled `.lisp` files are cached as
 bytecode. The cache key includes a hash of hyclb's own sources, so this should
 not happen; if it does, remove the `__pycache__` beside your `.lisp` file.
+
+## Why
+
+Python has the libraries; Common Lisp has the macros. Existing bridges make you
+choose which runtime is in charge, and the choice decides which ecosystem
+becomes second-class. Because macroexpansion finishes before a program runs, it
+can be delegated to a real Common Lisp while the program itself runs on Python.
+
+What that buys:
+
+* **Macros written for Common Lisp work unchanged**, including libraries. A
+  macro-only Quicklisp library expands away and never reaches the Python side,
+  so `trivia`, `alexandria`, `iterate`, `anaphora`, `metabang-bind` and
+  `let-over-lambda` are used as-is. A library with a runtime — `si-kanren`, a
+  miniKanren — is compiled through the system instead.
+* **Python objects are ordinary Lisp values.** No marshalling layer: a Torch
+  tensor is stored in a Lisp variable and passed to Lisp functions unchanged.
+* **CLOS with multiple dispatch**, which Python has no equivalent of.
+* **Conditions are Python exceptions**, so `handler-case` catches what a Python
+  library raises.
+* **Common Lisp's own declarations drive the back end.** `(declare (type ...))`
+  becomes a Python type annotation; `(declare (optimize (speed 3)))` selects a
+  second compilation that Numba turns into machine code, and adding
+  `(float-accuracy 0)` — an `optimize` quality of our own, which the standard
+  permits an implementation to define — lets the reductions be vectorised.
+  [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) has the measured
+  figures: what the declarations are worth, where the GPU helps and where it
+  does not, and how the result compares with scikit-learn and with C++.
 
 ## Compiling without the import hook
 
