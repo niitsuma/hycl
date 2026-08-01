@@ -32,7 +32,7 @@ dependency in the same sense as a compiler.
 
 ```python
 import hyclb            # teaches Python's import system about .lisp files
-import robust
+import robust           # compiles robust.lisp — there is no separate step
 
 data = [4.9, 5.1, 5.0, 4.8, 5.2, 12.7, 5.0, 4.9]
 print(list(robust.outliers(data, 2)))
@@ -44,11 +44,16 @@ print(robust.clean_mean(data, 2))
 4.985714285714286
 ```
 
+**There is no translation command to run.** `import hyclb` registers a loader
+for the `.lisp` extension, and from then on Python treats `.lisp` exactly as
+it treats `.py`: `import robust` finds the source, compiles it, and caches
+the bytecode beside it as `__pycache__/robust.cpython-312.pyc`. The second
+import reuses that cache and never starts SBCL — the Lisp is needed to build
+the module, not to import it.
+
 `loop … when … collect` is Common Lisp's `LOOP`, macroexpanded by SBCL;
-`numpy.mean` is numpy's own, handed the list unconverted. `robust.lisp`
-compiles to the module `robust`, whose functions are ordinary Python
-functions — `clean-mean` answers as `robust.clean_mean` — and the first
-import caches the bytecode, so the second needs no SBCL at all.
+`numpy.mean` is numpy's own, handed the list unconverted. The functions are
+ordinary Python functions, so `clean-mean` answers as `robust.clean_mean`.
 
 Macros are where it stops being a syntax. In
 [`examples/model_math.lisp`](examples/model_math.lisp) a macro derives the
