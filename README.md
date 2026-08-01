@@ -52,11 +52,6 @@ source, compiles it, and caches the bytecode beside it as
 `__pycache__/robust.cpython-312.pyc`. The second import reuses that cache and
 never starts SBCL — the Lisp is needed to build the module, not to import it.
 
-Inside, `loop … when … collect` is Common Lisp's `LOOP`, macroexpanded by
-SBCL; `numpy.mean` is numpy's own, handed the list unconverted. What comes
-out are ordinary Python functions, so `clean-mean` answers as
-`robust.clean_mean`.
-
 Macros are where it stops being a syntax. In
 [`examples/model_math.lisp`](examples/model_math.lisp) a macro derives the
 derivative of an activation function — symbolically, in Maxima, while the
