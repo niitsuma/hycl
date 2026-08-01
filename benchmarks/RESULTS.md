@@ -85,12 +85,12 @@ rewrite.
 
 ## 4. Against C++ from the same algorithm
 
-Scm2Cpp's temporal-feature-selection example — moving averages over every
-window length from 1 to 40, LASSO recovering the two the signal was built
-from — written in Common Lisp with the same generator, seed, windows,
-penalty and 20,000 sweeps. Both solvers run in one process on one design
-matrix, so this compares two compilations of one algorithm rather than two
-programs.
+[Scm2Cpp](https://github.com/niitsuma/scm2cpp)'s temporal-feature-selection
+example — moving averages over every window length from 1 to 40, LASSO
+recovering the two the signal was built from — written in Common Lisp with
+the same generator, seed, windows, penalty and 20,000 sweeps. Both solvers
+run in one process on one design matrix, so this compares two compilations of
+one algorithm rather than two programs.
 
 | | Time |
 | --- | ---: |
@@ -111,9 +111,10 @@ choice of algorithm does.
 | summed-area table | **0.0015 ms** |
 
 46×. The interesting part is not the ratio but how each system gets there:
-Scm2Cpp **recognises** the naive loop and rewrites it (`-I x`); hyclb
-**derives** the recurrence by telescoping the sum in Maxima, from the
-specification rather than from an implementation (`defsum`).
+[Scm2Cpp](https://github.com/niitsuma/scm2cpp) **recognises** the naive loop
+and rewrites it (`-I x`); hyclb **derives** the recurrence by telescoping the
+sum in Maxima, from the specification rather than from an implementation
+(`defsum`).
 
 ## 6. Lazy stream against compiled kernel
 
