@@ -126,9 +126,33 @@ rational.
 
 The translation is checked by round-tripping: each of nineteen programs is run
 as Python, translated, compiled back by hyclb, and the two outputs compared,
-so the program is its own oracle. Ten standard-library modules — `colorsys`,
-`bisect`, `heapq`, `statistics`, `textwrap`, `queue`, `copy`, `json.encoder`,
-`csv`, `random` — go through whole and agree with CPython on every probe.
+so the program is its own oracle
+([`tests/test_frompy.py`](tests/test_frompy.py)).
+
+Ten modules of Python's own standard library then go through whole. Each is
+translated, compiled by hyclb, and probed side by side with the module CPython
+imported; all ten agree on every probe. Nobody wrote them for this translator,
+which is the point.
+
+| module | lines | what the probe checks |
+| --- | ---: | --- |
+| `colorsys` | 166 | RGB↔HLS, ↔YIQ, ↔HSV round trips |
+| `bisect` | 118 | `bisect_left`/`right`, `insort`, ties |
+| `heapq` | 603 | push/pop, `heapify`, `nsmallest`, `merge` |
+| `statistics` | 1,454 | mean, median, stdev, variance, mode, quantiles |
+| `textwrap` | 491 | `wrap`, `fill`, `shorten`, `indent`, `dedent` |
+| `queue` | 326 | FIFO, LIFO and priority queues |
+| `copy` | 292 | shallow against deep, and identity after |
+| `json.encoder` | 443 | encoding, `sort_keys`, `indent`, ASCII escaping |
+| `csv` | 451 | writing with embedded commas, reading, `DictReader` |
+| `random` | 996 | a seeded `Random`: `randint`, `sample`, `shuffle`, `gauss` |
+
+The probes are [`tests/test_frompy_stdlib.py`](tests/test_frompy_stdlib.py);
+run them with `pytest tests/test_frompy_stdlib.py`. Translating is not
+running, and it was running that found the real problems — class bodies are
+scopes executed in order, name resolution is per-scope, and a Python function
+that falls off the end returns `None` where a Lisp body returns its last form.
+
 [`examples/from_python.py`](examples/from_python.py) translates a numeric loop
 and then adds one `(declare (optimize (speed 3) ...))`, which the Python it
 came from had no way to ask for.
