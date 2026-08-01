@@ -8,18 +8,33 @@ while the program is built and takes no part in running it — a build-time
 dependency in the same sense as a compiler.
 
 ```lisp
-;; fib.lisp
-(defun fib (n)
-  (loop for i from 0 below n
-        collect (round (/ (- (expt 1.6180339887 i) (expt -0.6180339887 i))
-                          2.2360679775))))
+;; outliers.lisp — Common Lisp on the outside, numpy underneath
+(py-import numpy)
+
+(defun outliers (xs threshold)
+  "The points more than THRESHOLD standard deviations from the mean."
+  (let ((mu (numpy.mean xs))
+        (sd (numpy.std xs)))
+    (loop for x in xs
+          when (> (abs (/ (- x mu) sd)) threshold)
+            collect x)))
 ```
 
 ```python
-import hyclb          # teaches Python's import system about .lisp files
-import fib
-print(fib.fib(10))
+import hyclb            # teaches Python's import system about .lisp files
+import outliers
+
+print(list(outliers.outliers([4.9, 5.1, 5.0, 4.8, 5.2, 12.7, 5.0, 4.9], 2)))
 ```
+
+```
+[12.7]
+```
+
+`loop … when … collect` is Common Lisp's `LOOP`, macroexpanded by SBCL;
+`numpy.mean` is numpy's own, handed the list unconverted. The first import
+compiles `outliers.lisp` and caches the bytecode; the second import needs no
+SBCL at all.
 
 ## Why
 
