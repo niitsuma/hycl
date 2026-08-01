@@ -52,12 +52,11 @@ source, compiles it, and caches the bytecode beside it as
 `__pycache__/robust.cpython-312.pyc`. The second import reuses that cache and
 never starts SBCL — the Lisp is needed to build the module, not to import it.
 
-Macros are where it stops being a syntax. In
-[`examples/model_math.lisp`](examples/model_math.lisp) a macro derives the
-derivative of an activation function — symbolically, in Maxima, while the
-program compiles — and generates a `torch.autograd.Function` whose backward
-pass is that closed form. No tape, no autograd; the gradient was decided
-before Python started:
+In [`examples/model_math.lisp`](examples/model_math.lisp) a Lisp macro
+derives the derivative of an activation function — symbolically, in Maxima,
+while the program compiles — and generates a `torch.autograd.Function` whose
+backward pass is that closed form. No tape, no autograd; the gradient was
+decided before Python started:
 
 ```lisp
 ;; model_math.lisp — the parts easier to derive than to write
