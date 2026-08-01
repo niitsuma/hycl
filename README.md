@@ -129,6 +129,27 @@ so the program is its own oracle. Ten standard-library modules — `colorsys`,
 and then adds one `(declare (optimize (speed 3) ...))`, which the Python it
 came from had no way to ask for.
 
+### The rest
+
+`tests/` doubles as the example set:
+
+| file | what it shows |
+| --- | --- |
+| `onlisp.lisp` | macros from *On Lisp*: anaphoric macros, hygiene, generalized variables |
+| `maxima.lisp` | symbolic differentiation performed while the program compiles |
+| `maxima-apps.lisp` | analytic gradients, subexpression elimination, series, identity checking |
+| `lagrangian.lisp` | equations of motion derived from a Lagrangian, then simulated |
+| `sequences.lisp` | a recurrence solved symbolically, streamed lazily, compiled to machine code |
+| `defsum.lisp` | summed-area tables derived from the sum itself: the box-sum recurrence is obtained by telescoping in Maxima, refused when it does not hold, and the generated code is checked against the naive sum before it is accepted |
+| `tailcall.lisp` | self-tail recursion compiled to a loop; mutual recursion left alone |
+| `lasso.lisp` | LASSO by coordinate descent, compiled three ways; `benchmarks/lasso.py` times them against NumPy, scikit-learn and cuML |
+| `sweep.lisp` | a hyperparameter grid built at compile time, driving PyTorch Lightning |
+| `lightning_demo.lisp` | a LightningModule whose class definition a macro generates |
+| `generators.lisp` | `yield` through every binding and control form; `async` |
+| `clos.lisp` | classes, inheritance, multiple dispatch, method qualifiers |
+| `kanren_demo.py` | compiling a Quicklisp library that is not macro-only |
+| `test_frompy.py` | Python translated to Lisp and back, output compared |
+
 ## Why
 
 Python has the libraries; Common Lisp has the macros. Existing bridges make you
@@ -262,19 +283,9 @@ by importing, so fix the package or uninstall it.
 bytecode. The cache key includes a hash of hyclb's own sources, so this should
 not happen; if it does, remove the `__pycache__` beside your `.lisp` file.
 
-## Using it
+## Compiling without the import hook
 
-A `.lisp` file is an importable module once `hyclb` has been imported:
-
-```python
-import hyclb
-import my_module          # compiles my_module.lisp, caches the bytecode
-```
-
-Compilation goes through Python's ordinary source-file machinery, so the result
-is cached as bytecode beside the source and a second run needs no SBCL.
-
-To compile a string or a file directly:
+To compile a string or a file directly, rather than through `import`:
 
 ```python
 from hyclb.api import cl_eval, cl_load, new_module
@@ -283,27 +294,6 @@ module = new_module("scratch")
 cl_eval("(defun square (x) (* x x))", module)
 print(module.square(7))
 ```
-
-## More examples
-
-`tests/` doubles as the example set:
-
-| file | what it shows |
-| --- | --- |
-| `onlisp.lisp` | macros from *On Lisp*: anaphoric macros, hygiene, generalized variables |
-| `maxima.lisp` | symbolic differentiation performed while the program compiles |
-| `maxima-apps.lisp` | analytic gradients, subexpression elimination, series, identity checking |
-| `lagrangian.lisp` | equations of motion derived from a Lagrangian, then simulated |
-| `sequences.lisp` | a recurrence solved symbolically, streamed lazily, compiled to machine code |
-| `defsum.lisp` | summed-area tables derived from the sum itself: the box-sum recurrence is obtained by telescoping in Maxima, refused when it does not hold, and the generated code is checked against the naive sum before it is accepted |
-| `tailcall.lisp` | self-tail recursion compiled to a loop; mutual recursion left alone |
-| `lasso.lisp` | LASSO by coordinate descent, compiled three ways; `benchmarks/lasso.py` times them against NumPy, scikit-learn and cuML |
-| `sweep.lisp` | a hyperparameter grid built at compile time, driving PyTorch Lightning |
-| `lightning_demo.lisp` | a LightningModule whose class definition a macro generates |
-| `generators.lisp` | `yield` through every binding and control form; `async` |
-| `clos.lisp` | classes, inheritance, multiple dispatch, method qualifiers |
-| `kanren_demo.py` | compiling a Quicklisp library that is not macro-only |
-| `test_frompy.py` | Python translated to Lisp and back, output compared |
 
 ## Tests
 
