@@ -8,33 +8,47 @@ while the program is built and takes no part in running it — a build-time
 dependency in the same sense as a compiler.
 
 ```lisp
-;; outliers.lisp — Common Lisp on the outside, numpy underneath
+;; robust.lisp — Common Lisp on the outside, numpy underneath
 (py-import numpy)
 
-(defun outliers (xs threshold)
-  "The points more than THRESHOLD standard deviations from the mean."
+(defun zscores (xs)
+  "Each point's distance from the mean, in standard deviations."
   (let ((mu (numpy.mean xs))
         (sd (numpy.std xs)))
-    (loop for x in xs
-          when (> (abs (/ (- x mu) sd)) threshold)
-            collect x)))
+    (loop for x in xs collect (/ (- x mu) sd))))
+
+(defun outliers (xs threshold)
+  "The points whose z-score exceeds THRESHOLD."
+  (loop for x in xs
+        for z in (zscores xs)
+        when (> (abs z) threshold)
+          collect x))
+
+(defun clean-mean (xs threshold)
+  "The mean, after dropping the outliers."
+  (let ((bad (outliers xs threshold)))
+    (numpy.mean (remove-if (lambda (x) (member x bad)) xs))))
 ```
 
 ```python
 import hyclb            # teaches Python's import system about .lisp files
-import outliers
+import robust
 
-print(list(outliers.outliers([4.9, 5.1, 5.0, 4.8, 5.2, 12.7, 5.0, 4.9], 2)))
+data = [4.9, 5.1, 5.0, 4.8, 5.2, 12.7, 5.0, 4.9]
+print(list(robust.outliers(data, 2)))
+print(robust.clean_mean(data, 2))
 ```
 
 ```
 [12.7]
+4.985714285714286
 ```
 
 `loop … when … collect` is Common Lisp's `LOOP`, macroexpanded by SBCL;
-`numpy.mean` is numpy's own, handed the list unconverted. The first import
-compiles `outliers.lisp` and caches the bytecode; the second import needs no
-SBCL at all.
+`numpy.mean` is numpy's own, handed the list unconverted. `robust.lisp`
+compiles to the module `robust`, whose functions are ordinary Python
+functions — `clean-mean` answers as `robust.clean_mean` — and the first
+import caches the bytecode, so the second needs no SBCL at all.
 
 ## Why
 

@@ -16,7 +16,7 @@ so cannot quietly rot. They are written to be read:
 | `sequences.lisp` | a recurrence is solved symbolically, then becomes both a lazy stream and a machine-code kernel |
 | `tfs_lasso.lisp` | Scm2Cpp's temporal-feature-selection example — moving averages over every window length, LASSO picking the two that matter — written in Common Lisp, agreeing with the C++ coefficient for coefficient |
 | `scm2cpp_interop.lisp` | a Scheme kernel compiled to C++ by Scm2Cpp, called from Lisp through ctypes and checked against hyclb's own compilation of the same algorithm |
-| `outliers.lisp` | the front-page example: seven lines, one CL macro, one numpy call |
+| `robust.lisp` | the front-page example: three functions calling each other, LOOP over numpy statistics |
 | `from_python.py` | an existing Python loop translated into Lisp, then declared fast |
 | `defsum.lisp` | write the sum, get the integral image: O(n^4) as specification, O(n^2) as derived implementation |
 | `lasso.lisp` | one algorithm, three compilations: what `(optimize (speed 3))` and `(float-accuracy 0)` are each worth |
