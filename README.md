@@ -56,13 +56,9 @@ source, compiles it, and caches the bytecode beside it as
 `__pycache__/robust.cpython-312.pyc`. The second import reuses that cache and
 never starts SBCL — the Lisp is needed to build the module, not to import it.
 
-Code written this way runs at Python's speed, which for a loop is not fast.
-Common Lisp already has the way to ask for the other trade — add
-`(declare (optimize (speed 3)))` and the same source is compiled a second
-way, through Numba, into machine code. On LASSO regression that is 2,134×
-between the two compilations, and level with scikit-learn's hand-tuned Cython
-solver. [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) has the measured
-tables, including where a GPU helps and where it does not.
+A declaration can make a function faster, sometimes very much faster, by
+compiling it through Numba; how much is a question for measurement, and
+[`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) has the numbers.
 
 ### Let a macro do what the source cannot say
 
@@ -294,12 +290,18 @@ What that buys:
 * **CLOS with multiple dispatch**, which Python has no equivalent of.
 * **Conditions are Python exceptions**, so `handler-case` catches what a Python
   library raises.
-* **Common Lisp's own declarations drive the back end**, so the fast path
-  above needed no syntax of its own. `(declare (type ...))` becomes a Python
-  type annotation, which is not decoration — dataclasses and pydantic read
-  them at run time. `(float-accuracy 0)`, licensing the reassociation that
-  lets a reduction vectorise, is an `optimize` quality of our own, which the
-  standard permits an implementation to define.
+* **Common Lisp's own declarations drive the back end**, so none of this
+  needed a syntax of its own. `(declare (type ...))` becomes a Python type
+  annotation, which is not decoration — dataclasses and pydantic read them at
+  run time. `(declare (optimize (speed 3)))` selects a second compilation
+  without the Lisp value representation, which Numba turns into machine code:
+  on LASSO regression that is 2,134× between the two compilations of one
+  source text, and level with scikit-learn's hand-tuned Cython solver.
+  Adding `(float-accuracy 0)`, which licenses the reassociation that lets a
+  reduction vectorise, is worth a further 1.2–1.8×; it is an `optimize`
+  quality of our own, which the standard permits an implementation to define.
+  Where a GPU helps and where it does not is measured too, and the answer is
+  not what one would guess.
 
 ## Tests
 
