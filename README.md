@@ -56,6 +56,14 @@ source, compiles it, and caches the bytecode beside it as
 `__pycache__/robust.cpython-312.pyc`. The second import reuses that cache and
 never starts SBCL — the Lisp is needed to build the module, not to import it.
 
+Code written this way runs at Python's speed, which for a loop is not fast.
+Common Lisp already has the way to ask for the other trade — add
+`(declare (optimize (speed 3)))` and the same source is compiled a second
+way, through Numba, into machine code. On LASSO regression that is 2,134×
+between the two compilations, and level with scikit-learn's hand-tuned Cython
+solver. [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) has the measured
+tables, including where a GPU helps and where it does not.
+
 ### Let a macro do what the source cannot say
 
 In [`examples/model_math.lisp`](examples/model_math.lisp) a Lisp macro
@@ -286,14 +294,12 @@ What that buys:
 * **CLOS with multiple dispatch**, which Python has no equivalent of.
 * **Conditions are Python exceptions**, so `handler-case` catches what a Python
   library raises.
-* **Common Lisp's own declarations drive the back end.** `(declare (type ...))`
-  becomes a Python type annotation; `(declare (optimize (speed 3)))` selects a
-  second compilation that Numba turns into machine code, and adding
-  `(float-accuracy 0)` — an `optimize` quality of our own, which the standard
-  permits an implementation to define — lets the reductions be vectorised.
-  [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) has the measured
-  figures: what the declarations are worth, where the GPU helps and where it
-  does not, and how the result compares with scikit-learn and with C++.
+* **Common Lisp's own declarations drive the back end**, so the fast path
+  above needed no syntax of its own. `(declare (type ...))` becomes a Python
+  type annotation, which is not decoration — dataclasses and pydantic read
+  them at run time. `(float-accuracy 0)`, licensing the reassociation that
+  lets a reduction vectorise, is an `optimize` quality of our own, which the
+  standard permits an implementation to define.
 
 ## Tests
 
