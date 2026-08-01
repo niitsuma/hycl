@@ -50,6 +50,45 @@ compiles to the module `robust`, whose functions are ordinary Python
 functions — `clean-mean` answers as `robust.clean_mean` — and the first
 import caches the bytecode, so the second needs no SBCL at all.
 
+Macros are where it stops being a syntax. In
+[`examples/model_math.lisp`](examples/model_math.lisp) a macro derives the
+derivative of an activation function — symbolically, in Maxima, while the
+program compiles — and generates a `torch.autograd.Function` whose backward
+pass is that closed form. No tape, no autograd; the gradient was decided
+before Python started:
+
+```lisp
+;; model_math.lisp — the parts easier to derive than to write
+(defmacro defactivation (name (x) expr)
+  (let ((slope (maxima-diff expr x)))       ; d/dx, computed by Maxima
+    `(setq ,name (py-class ...))))          ; forward = expr, backward = slope
+
+;; swish(x) = x · sigmoid(x); its backward pass is derived, not written
+(defactivation swish (x) (/ x (+ 1 (exp (- x)))))
+```
+
+[`examples/main.py`](examples/main.py) is an ordinary Python program that
+imports this module and checks the derived gradient against Torch's autograd
+on the same function:
+
+```python
+import torch
+import hyclb
+import model_math
+
+x = torch.tensor([-1.0, 0.0, 1.0, 2.0], requires_grad=True)
+model_math.swish.apply(x).sum().backward()
+```
+
+```
+analytic gradient = [0.072329, 0.5, 0.927671, 1.090784]
+torch autograd    = [0.072329, 0.5, 0.927671, 1.090784]
+agree             = True
+```
+
+The full program also trains a small network through the derived activation,
+because the point is that nothing downstream can tell.
+
 ## Why
 
 Python has the libraries; Common Lisp has the macros. Existing bridges make you
