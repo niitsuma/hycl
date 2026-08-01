@@ -7,6 +7,10 @@ expansion is translated and compiled to Python bytecode. The Lisp is present
 while the program is built and takes no part in running it — a build-time
 dependency in the same sense as a compiler.
 
+## Examples
+
+### Write Common Lisp, import it as Python
+
 ```lisp
 ;; robust.lisp — Common Lisp on the outside, numpy underneath
 (py-import numpy)
@@ -52,6 +56,8 @@ source, compiles it, and caches the bytecode beside it as
 `__pycache__/robust.cpython-312.pyc`. The second import reuses that cache and
 never starts SBCL — the Lisp is needed to build the module, not to import it.
 
+### Let a macro do what the source cannot say
+
 In [`examples/model_math.lisp`](examples/model_math.lisp) a Lisp macro
 derives the derivative of an activation function — symbolically, in Maxima,
 while the program compiles — and generates a `torch.autograd.Function` whose
@@ -89,6 +95,39 @@ agree             = True
 
 The full program also trains a small network through the derived activation,
 because the point is that nothing downstream can tell.
+
+### Bring existing Python into the Lisp
+
+`hyclb.frompy` walks Python's own `ast` and emits Common Lisp — not Hy, which
+is what [py2hy](https://github.com/niitsuma/py2hy) emits, but source that goes
+through the SBCL expander like any other `.lisp` file, so macros and
+declarations apply to it straight away:
+
+```console
+$ python -m hyclb.frompy moments.py
+```
+
+```lisp
+(defun mean (xs)
+  (setq total 0.0)
+  (py-for (x xs) (setq total (+ total x)))
+  (py-binop "/" total (py-call len xs)))
+```
+
+Where the two languages agree — `+`, `-`, `*`, the orderings — the Lisp
+operator is used. Where they disagree the Python one is written explicitly,
+because a silent change of meaning is worse than an ugly form: Common Lisp's
+`/` is exact, so `total / len(xs)` becomes `(py-binop "/" ...)` rather than a
+rational.
+
+The translation is checked by round-tripping: each of nineteen programs is run
+as Python, translated, compiled back by hyclb, and the two outputs compared,
+so the program is its own oracle. Ten standard-library modules — `colorsys`,
+`bisect`, `heapq`, `statistics`, `textwrap`, `queue`, `copy`, `json.encoder`,
+`csv`, `random` — go through whole and agree with CPython on every probe.
+[`examples/from_python.py`](examples/from_python.py) translates a numeric loop
+and then adds one `(declare (optimize (speed 3) ...))`, which the Python it
+came from had no way to ask for.
 
 ## Why
 
@@ -223,45 +262,6 @@ by importing, so fix the package or uninstall it.
 bytecode. The cache key includes a hash of hyclb's own sources, so this should
 not happen; if it does, remove the `__pycache__` beside your `.lisp` file.
 
-## The other direction
-
-An existing Python program can be brought into the Lisp:
-
-```
-python -m hyclb.frompy script.py -o script.lisp
-```
-
-`hyclb.frompy` walks Python's own `ast` and emits Common Lisp — not Hy, which
-is what [py2hy](https://github.com/niitsuma/py2hy) emits, but source that goes
-through the SBCL expander like any other `.lisp` file, so a macro applies to it
-straight away. It also means the declarations work: `examples/from_python.py`
-translates a numeric loop and adds one `(declare (optimize (speed 3) ...))`,
-which the Python it came from had no way to ask for.
-
-The translation preserves behaviour rather than beauty. Where Common Lisp and
-Python disagree, the Python operation is written explicitly, because a silent
-change of meaning is worse than an ugly form:
-
-| Python | Common Lisp would give | so the output says |
-| --- | --- | --- |
-| `10 / 4` | `5/2`, an exact rational | `(py-binop "/" 10 4)` |
-| `a == b` | numeric or structural `=` | `(py-binop "==" a b)` |
-| `if 0:` | `0` is true in Lisp | `(if (py-truthy 0) ...)` |
-| `0 or 5` | `0`, since `0` is true | `(py-or 0 5)` |
-
-On the fast path those wrappers collapse back into the operators, since there
-the arithmetic is Python's already. `tests/test_frompy.py` is the real check:
-each case runs as Python, is translated, is compiled back by hyclb, and the two
-outputs must be identical — so the program is its own oracle. Anything with no
-faithful translation raises `Unsupported` instead of guessing.
-
-Whole modules go through. `tests/test_frompy_stdlib.py` translates ten of
-Python's own — `colorsys`, `bisect`, `heapq`, `statistics`, `textwrap`,
-`queue`, `copy`, `json.encoder`, `csv` and `random`, up to a thousand lines
-each — compiles them with hyclb, and probes each one side by side with the
-module CPython imported. All ten agree. Nobody wrote them for this translator,
-which is the point.
-
 ## Using it
 
 A `.lisp` file is an importable module once `hyclb` has been imported:
@@ -284,7 +284,7 @@ cl_eval("(defun square (x) (* x x))", module)
 print(module.square(7))
 ```
 
-## Examples
+## More examples
 
 `tests/` doubles as the example set:
 
