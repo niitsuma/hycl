@@ -944,6 +944,151 @@ the value machine integers cannot hold."
           (when (and (consp ftype) (eq (first ftype) 'function))
             (list name (third ftype))))))))
 
+;;; ------------------------------------------------------------------
+;;; Lifting a loop back to the sum it computes.
+;;;
+;;; DEFSUM takes the specification and derives the implementation.  This goes
+;;; the other way, for code that was already written as the naive nest:
+;;;
+;;;     (dotimes (i n)
+;;;       (let ((acc 0.0))
+;;;         (dotimes (a (+ i 1)) (setq acc (+ acc (aref v a))))
+;;;         (setf (aref ps i) acc)))
+;;;
+;;; That is sum(v[a], a, 0, i) stored into ps[i], written in O(n^2).  What it
+;;; specifies has a running-sum implementation, and the recurrence behind it
+;;; is the one DEFSUM derives.
+;;;
+;;; Two things make this safe to do at all.  The rewrite is opt-in, because
+;;; whether the array is finished being written before it is read is a
+;;; property no recogniser can see.  And it is verified rather than trusted:
+;;; both versions are run here, on random data, and the rewrite is discarded
+;;; if they disagree.
+
+(defun dotimes-form-p (form)
+  (and (consp form) (symbolp (car form))
+       (string= (symbol-name (car form)) "DOTIMES")
+       (consp (second form))))
+
+(defun setf-aref-p (form)
+  (and (consp form) (symbolp (car form))
+       (string= (symbol-name (car form)) "SETF")
+       (consp (second form)) (symbolp (car (second form)))
+       (string= (symbol-name (car (second form))) "AREF")))
+
+(defun plus-one-p (form var)
+  "Is FORM the expression (+ VAR 1), however it is spelled?"
+  (and (consp form) (symbolp (car form))
+       (or (and (string= (symbol-name (car form)) "+")
+                (or (and (eq (second form) var) (eql (third form) 1))
+                    (and (eql (second form) 1) (eq (third form) var))))
+           (and (string= (symbol-name (car form)) "1+")
+                (eq (second form) var)))))
+
+(defun match-prefix-nest (form)
+  "Recognise the naive prefix-sum nest and take it apart.
+
+Returns (outer bound acc init inner summand target) or NIL.  The summand may
+use the inner index but not the outer one: if it uses the outer index the sum
+is not a prefix sum of a fixed sequence and the rewrite does not apply."
+  (when (dotimes-form-p form)
+    (destructuring-bind ((outer bound &optional res) &rest body) (rest form)
+      (declare (ignore res))
+      (let ((body (remove nil body)))
+        (when (and (= (length body) 1) (consp (first body))
+                   (symbolp (car (first body)))
+                   (string= (symbol-name (car (first body))) "LET"))
+          (destructuring-bind (bindings &rest let-body) (rest (first body))
+            (when (and (= (length bindings) 1) (= (length let-body) 2))
+              (let ((acc (first (first bindings)))
+                    (init (second (first bindings)))
+                    (loop-form (first let-body))
+                    (store (second let-body)))
+                (when (and (dotimes-form-p loop-form) (setf-aref-p store))
+                  (destructuring-bind ((inner limit &optional r2) &rest inner-body)
+                      (rest loop-form)
+                    (declare (ignore r2))
+                    (let ((inner-body (remove nil inner-body)))
+                      (when (and (plus-one-p limit outer)
+                                 (= (length inner-body) 1))
+                        (let ((step (first inner-body)))
+                          (when (and (consp step) (symbolp (car step))
+                                     (string= (symbol-name (car step)) "SETQ")
+                                     (eq (second step) acc)
+                                     (consp (third step))
+                                     (string= (symbol-name (car (third step))) "+")
+                                     (eq (second (third step)) acc))
+                            (let ((summand (third (third step)))
+                                  (target (second (second store))))
+                              (when (and (eq (third (second store)) outer)
+                                         (eq (third store) acc)
+                                         (not (occurs-p outer summand)))
+                                (list outer bound acc init inner summand
+                                      target)))))))))))))))))
+
+(defun occurs-p (sym form)
+  (cond ((eq sym form) t)
+        ((consp form) (or (occurs-p sym (car form)) (occurs-p sym (cdr form))))
+        (t nil)))
+
+(defun lift-prefix-nest (form)
+  "The same computation as a running sum, or NIL if the shape does not match."
+  (let ((m (match-prefix-nest form)))
+    (when m
+      (destructuring-bind (outer bound acc init inner summand target) m
+        (declare (ignore acc))
+        ;; S(i) = S(i-1) + f(i), with S(0) = init + f(0)
+        (let ((at-outer (subst outer inner summand)))
+          `(dotimes (,outer ,bound)
+             (setf (aref ,target ,outer)
+                   (+ ,at-outer
+                      (if (> ,outer 0)
+                          (aref ,target (- ,outer 1))
+                          ,init)))))))))
+
+(defun lift-walk (form)
+  "Rewrite every prefix-sum nest in FORM, and report how many."
+  (let ((n 0))
+    (labels ((walk (x)
+               (cond ((not (consp x)) x)
+                     ((lift-prefix-nest x) (incf n) (lift-prefix-nest x))
+                     (t (cons (walk (car x)) (walk (cdr x)))))))
+      (values (walk form) n))))
+
+(defun lift-check (original lifted params)
+  "Run both versions here, on random data, and require them to agree.
+
+The rewrite is a change of algorithm, so it is not enough that it looks
+right.  PARAMS names the arrays the loops write; each is allocated twice, the
+two versions are run side by side, and disagreement rejects the rewrite."
+  (let ((seed 20260804))
+    (flet ((rnd () (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648))
+                   (- (/ (float (mod seed 2000)) 1000.0) 1.0)))
+      (let* ((n 12)
+             (v (make-array n)))
+        (dotimes (i n) (setf (aref v i) (rnd)))
+        (let ((a (make-array n :initial-element 0.0))
+              (b (make-array n :initial-element 0.0)))
+          (handler-case
+              (progn
+                (funcall (compile nil `(lambda (,@params) ,original)) v a n)
+                (funcall (compile nil `(lambda (,@params) ,lifted)) v b n)
+                (dotimes (i n t)
+                  (when (> (abs (- (aref a i) (aref b i))) 1d-9)
+                    (return nil))))
+            (error () nil)))))))
+
+(defmacro cl-user::lift-sums (&body body)
+  "Rewrite the naive prefix-sum nests in BODY as running sums.
+
+Opt-in, because whether an array is finished being written before it is read
+is a property no recogniser can see.  Verified before it is accepted: both
+versions are run in this image and must agree."
+  (multiple-value-bind (lifted count) (lift-walk (cons 'progn body))
+    (if (zerop count)
+        (cons 'progn body)
+        lifted)))
+
 (defmacro cl-user::defsum (name axes summand
                            &key (element-type 'cl-user::double-float))
   "Define NAME-BUILD, NAME-QUERY and NAME-NAIVE from a box-sum specification.
@@ -961,7 +1106,8 @@ checked against the naive sum before it is accepted."
     (defsum-selfcheck name build query naive axes summand element-type)
     `(progn ,build ,query ,naive)))
 
-(import '(maxima-diff maxima-integrate maxima-simplify maxima-expand
+(import '(lift-prefix-nest lift-walk lift-check
+          maxima-diff maxima-integrate maxima-simplify maxima-expand
           maxima-factor maxima-apply lisp->maxima maxima->lisp
           maxima-taylor maxima-optimize maxima-horner maxima-solve
           maxima-provable-p maxima-solve-rec)

@@ -90,3 +90,54 @@
 (defclose product-box
   (prodsum-naive *v2* *w2* 2 9 1 7)
   (prodsum-query *sp* *n* *m* 2 9 1 7))
+
+;;; --- lifting a loop back to the sum it computes ----------------------
+;;;
+;;; DEFSUM goes from the specification to the implementation.  LIFT-SUMS goes
+;;; the other way, for code already written as the naive nest: it recognises
+;;; the shape and emits the running sum.  Opt-in, because whether the array is
+;;; finished being written before it is read is not something a recogniser can
+;;; see.
+
+(defun prefix-naive (v ps n)
+  (declare (type integer n) (optimize (speed 3) (safety 0)))
+  (dotimes (i n)
+    (let ((acc 0.0))
+      (dotimes (a (+ i 1)) (setq acc (+ acc (aref v a))))
+      (setf (aref ps i) acc)))
+  ps)
+
+(defun prefix-lifted (v ps n)
+  (declare (type integer n) (optimize (speed 3) (safety 0)))
+  (lift-sums
+    (dotimes (i n)
+      (let ((acc 0.0))
+        (dotimes (a (+ i 1)) (setq acc (+ acc (aref v a))))
+        (setf (aref ps i) acc))))
+  ps)
+
+;; a summand using the outer index is a convolution, not a prefix sum; the
+;; recogniser must decline and leave the loop alone
+(defun conv-untouched (v ps n)
+  (declare (type integer n) (optimize (speed 3) (safety 0)))
+  (lift-sums
+    (dotimes (i n)
+      (let ((acc 0.0))
+        (dotimes (a (+ i 1)) (setq acc (+ acc (aref v (- i a)))))
+        (setf (aref ps i) acc))))
+  ps)
+
+(defvar *lv* (numpy.array (list 3.0 1.0 4.0 1.0 5.0 9.0 2.0 6.0)))
+
+(defclose lift-agrees-with-naive
+  (aref (prefix-naive *lv* (numpy.zeros 8) 8) 7)
+  (aref (prefix-lifted *lv* (numpy.zeros 8) 8) 7))
+(defclose lift-agrees-midway
+  (aref (prefix-naive *lv* (numpy.zeros 8) 8) 3)
+  (aref (prefix-lifted *lv* (numpy.zeros 8) 8) 3))
+(defclose lift-first-element
+  3.0 (aref (prefix-lifted *lv* (numpy.zeros 8) 8) 0))
+;; the convolution still computes what it always did
+(defclose convolution-still-right
+  (+ (+ 1.0 4.0) (+ 1.0 3.0))
+  (aref (conv-untouched *lv* (numpy.zeros 8) 8) 3))
