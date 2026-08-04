@@ -42,3 +42,30 @@
   (progn (defun addup (&rest xs) (apply #'+ xs)) (addup 1 2 3 4)))
 (deftest optional-arg 7
   (progn (defun inc-by (x &optional (d 1)) (+ x d)) (inc-by 5 2)))
+
+;;; The ordinary path's arithmetic and predicates were specialised for the
+;;; two-argument case, which is what a loop test is.  These pin the exactness
+;;; and the chaining that the specialisation must not disturb.
+
+(deftest div-exact-rational 'yes (if (equal (/ 1 3) (/ 2 6)) 'yes 'no))
+(deftest div-canonical 2 (/ 6 3))
+(deftest div-reciprocal 'yes (if (equal (/ 2) (/ 1 2)) 'yes 'no))
+(deftest div-float-left 0.25 (/ 1.0 4))
+(deftest div-float-right 0.25 (/ 1 4.0))
+(deftest div-three 10 (/ 60 2 3))
+(deftest div-three-rational 'yes (if (equal (/ 1 2 3) (/ 1 6)) 'yes 'no))
+
+(deftest chain-lt-true t (< 1 2 3))
+(deftest chain-lt-false nil (< 1 3 2))
+(deftest chain-eq-true t (= 1 1 1))
+(deftest chain-eq-false nil (= 1 1 2))
+(deftest chain-ge t (>= 3 3 2))
+(deftest compare-strings t (< "a" "b"))
+
+;; the conditional over a total predicate is compiled without TRUTHY; these
+;; check that the two spellings still agree, including the non-predicate case
+(deftest if-over-predicate 'yes (if (< 1 2) 'yes 'no))
+(deftest if-over-value 'yes (if 0 'yes 'no))          ; 0 is true in CL
+(deftest if-over-nil 'no (if nil 'yes 'no))
+(deftest while-over-predicate 5
+  (let ((i 0)) (py-while (< i 5) (setq i (+ i 1))) i))

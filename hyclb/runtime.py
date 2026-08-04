@@ -309,17 +309,33 @@ def cl_error(designator, *args):
 # arithmetic that CL defines differently from Python
 
 
-def cl_div(*args):
-    """CL / is exact: (/ 1 3) is the rational 1/3, not 0.333..."""
-    if len(args) == 1:
-        args = (1,) + args
+def cl_div(first, *rest):
+    """CL / is exact: (/ 1 3) is the rational 1/3, not 0.333...
+
+    The two-argument case is the one that runs in a loop, and `isinstance(x,
+    Fraction)` is not cheap -- Fraction is registered with numbers.Rational,
+    so the check goes through the abc machinery.  Testing `type(...) is
+    Fraction` first settles the common case without it.
+    """
+    if len(rest) == 1:
+        a, b = first, rest[0]
+        if type(a) is float or type(b) is float:
+            return a / b
+        if type(a) is int and type(b) is int:
+            q = Fraction(a, b)
+            return q.numerator if q.denominator == 1 else q
+        q = a / b
+        if type(q) is Fraction and q.denominator == 1:
+            return q.numerator
+        return q
+    args = (1, first) if not rest else (first,) + rest
     acc = args[0]
     for x in args[1:]:
-        if isinstance(acc, int) and isinstance(x, int):
+        if type(acc) is int and type(x) is int:
             acc = Fraction(acc, x)
         else:
             acc = acc / x
-        if isinstance(acc, Fraction) and acc.denominator == 1:
+        if type(acc) is Fraction and acc.denominator == 1:
             acc = acc.numerator
     return acc
 
@@ -442,28 +458,43 @@ def _chain(op, args):
     return boolify(all(op(args[i], args[i + 1]) for i in range(len(args) - 1)))
 
 
-def cl_numeq(*a):
-    return _chain(lambda x, y: x == y, a)
+# Two arguments is what a loop test is, and going through _chain costs a
+# generator, an all(), a len() and a lambda for it.  Each predicate answers
+# that case directly and falls back to the chain for three or more.
+
+
+def cl_numeq(x, y, *rest):
+    if not rest:
+        return T if x == y else NIL
+    return _chain(lambda p, q: p == q, (x, y) + rest)
 
 
 def cl_numne(*a):
     return boolify(len(set(a)) == len(a))
 
 
-def cl_lt(*a):
-    return _chain(lambda x, y: x < y, a)
+def cl_lt(x, y, *rest):
+    if not rest:
+        return T if x < y else NIL
+    return _chain(lambda p, q: p < q, (x, y) + rest)
 
 
-def cl_gt(*a):
-    return _chain(lambda x, y: x > y, a)
+def cl_gt(x, y, *rest):
+    if not rest:
+        return T if x > y else NIL
+    return _chain(lambda p, q: p > q, (x, y) + rest)
 
 
-def cl_le(*a):
-    return _chain(lambda x, y: x <= y, a)
+def cl_le(x, y, *rest):
+    if not rest:
+        return T if x <= y else NIL
+    return _chain(lambda p, q: p <= q, (x, y) + rest)
 
 
-def cl_ge(*a):
-    return _chain(lambda x, y: x >= y, a)
+def cl_ge(x, y, *rest):
+    if not rest:
+        return T if x >= y else NIL
+    return _chain(lambda p, q: p >= q, (x, y) + rest)
 
 
 # --------------------------------------------------------------------------

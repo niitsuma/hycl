@@ -20,6 +20,12 @@
 (defmacro cl-if [test then #* else]
   `(if (truthy ~test) ~then ~(if else (get else 0) 'NIL)))
 
+;; The test is a predicate that answers T or NIL and nothing else, so TRUTHY
+;; would only be asking whether it is T.  Emitted by the translator, never
+;; written by hand.
+(defmacro cl-if-tested [test then #* else]
+  `(if (is ~test T) ~then ~(if else (get else 0) 'NIL)))
+
 (defmacro cl-setq [#* pairs]
   (setv out [])
   (for [i (range 0 (len pairs) 2)]
@@ -629,6 +635,10 @@ signalling one.  Section `Limitations` of the paper says so.
 
 ;; ... except on the fast path, where there is no NIL to distinguish and
 ;; Numba cannot call TRUTHY anyway.
+(defmacro cl-py-while-tested [test #* body]
+  ;; the test answers T or NIL, so TRUTHY would only be asking whether it is T
+  `(while (is ~test T) ~@body))
+
 (defmacro cl-py-while-fast [test #* body]
   `(while ~test ~@body))
 

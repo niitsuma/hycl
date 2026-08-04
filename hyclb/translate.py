@@ -16,6 +16,8 @@ from .runtime import CL_TYPE_MAP, NIL, T, Cons, Keyword, Symbol
 # macros in cl.hy.  PROGN is Hy's `do` unchanged.
 SPECIAL = {
     "if": "cl-if",
+    "%if-tested": "cl-if-tested",
+    "%while-tested": "cl-py-while-tested",
     "let": "cl-let",
     "let*": "cl-let-star",
     "progn": "do",
@@ -455,6 +457,24 @@ def _head_name(s):
     return py_name(s)
 
 
+# Predicates that answer T or NIL and nothing else.  A conditional over one of
+# them needs no TRUTHY: the test is an identity check against T, which is what
+# TRUTHY would compute anyway, and it is the difference between a function call
+# per iteration and none.
+_TOTAL_PREDICATES = frozenset({
+    "=", "/=", "<", ">", "<=", ">=",
+    "null", "not", "consp", "atom", "listp", "symbolp", "eq", "eql", "equal",
+    "equalp", "endp", "zerop", "plusp", "minusp", "oddp", "evenp",
+    "numberp", "stringp", "functionp", "integerp", "floatp", "keywordp",
+    "characterp", "vectorp", "arrayp", "simple-vector-p", "struct-p",
+})
+
+
+def _is_total_predicate(form):
+    return (isinstance(form, Cons) and isinstance(form.car, Symbol)
+            and form.car.name in _TOTAL_PREDICATES)
+
+
 # ---------------------------------------------------------------- compounds
 
 
@@ -739,6 +759,11 @@ def _call(form):
         if name == "funcall" and _is_setf_aref(form):
             args = list(_iter(form.cdr))
             return M.Expression([sym("cl-aset")] + [translate(a) for a in args[1:]])
+        # a test that is a total predicate needs no TRUTHY
+        if name in ("if", "py-while") and not _fast \
+                and isinstance(form.cdr, Cons) \
+                and _is_total_predicate(form.cdr.car):
+            head = Symbol("%if-tested" if name == "if" else "%while-tested")
         if name == "symbol-macrolet":
             return translate(_expand_symbol_macrolet(form))
         args = _args(form.cdr, name)
