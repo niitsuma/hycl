@@ -401,7 +401,12 @@ call we also generate."
                             ((and (consp form) (symbolp (car form))
                                   (string= (symbol-name (car form)) "DEFUN"))
                              (run-spec-tests form)
-                             (list :form (rename-gensyms (expand-all form)) offset))
+                             (let ((derived (derive-type form)))
+                               (if derived
+                                   (list :form (rename-gensyms (expand-all form))
+                                         offset derived)
+                                   (list :form (rename-gensyms (expand-all form))
+                                         offset))))
                             (t (list :form (rename-gensyms (expand-all form)) offset)))))))
              (error (e) (emit (list :error (princ-to-string e)))))))
         (:eval
@@ -914,6 +919,30 @@ each is used with under AREF (NIL for a scalar)."
                         not implement the recurrence"
                        name q v lohis)))))))
     t))
+
+(defvar *introspect-loaded* nil)
+
+(defun derive-type (form)
+  "What SBCL makes of a DEFUN, once it has compiled it.
+
+Only pure Common Lisp can be evaluated here -- a function reaching into
+Python does not exist in this image -- so failure is expected and silent.
+What comes back is the whole ftype: argument types the programmer declared,
+and the return type SBCL worked out from them.  The return type is the part
+worth having.  It is free, it is sound, and it says things a declaration does
+not: that (expt 2 (- n)) over an integer yields a RATIONAL, which is exactly
+the value machine integers cannot hold."
+  (unless *introspect-loaded*
+    (ignore-errors (require :sb-introspect))
+    (setf *introspect-loaded* t))
+  (ignore-errors
+    (let ((name (second form)))
+      (when (and (symbolp name) (not (null name)))
+        (handler-bind ((warning #'muffle-warning))
+          (eval form))
+        (let ((ftype (funcall (find-symbol "FUNCTION-TYPE" "SB-INTROSPECT") name)))
+          (when (and (consp ftype) (eq (first ftype) 'function))
+            (list name (third ftype))))))))
 
 (defmacro cl-user::defsum (name axes summand
                            &key (element-type 'cl-user::double-float))

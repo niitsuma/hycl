@@ -112,6 +112,11 @@ def expand(source, with_lines=False):
                     starts.append(i + 1)
         offset = entry.cdr.cdr.car if isinstance(entry.cdr.cdr, Cons) else None
         line = bisect.bisect_right(starts, offset) if isinstance(offset, int) else 1
+        # a fourth element is (name return-type), derived by SBCL from the
+        # declarations the programmer wrote
+        tail = entry.cdr.cdr.cdr if isinstance(entry.cdr.cdr, Cons) else NIL
+        if isinstance(tail, Cons):
+            translate.record_derived_type(tail.car)
         out.append((form, max(1, line)))
     return out
 

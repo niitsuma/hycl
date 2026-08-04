@@ -317,7 +317,12 @@ What that buys:
 * **Common Lisp's own declarations drive the back end**, so none of this
   needed a syntax of its own. `(declare (type ...))` becomes a Python type
   annotation, which is not decoration — dataclasses and pydantic read them at
-  run time. `(declare (optimize (speed 3)))` selects a second compilation
+  run time — and the *return* annotation needs no declaration at all: the
+  expander compiles the function and asks SBCL what it derived. The same
+  answer decides when the fast path is unsafe. A function returning
+  `(expt 2 (- n))` has a `RATIONAL` value, which a machine word cannot hold,
+  so `(optimize (speed 3))` on it is refused with a message rather than
+  compiled into a silent zero. `(declare (optimize (speed 3)))` selects a second compilation
   without the Lisp value representation, which Numba turns into machine code:
   on LASSO regression that is 2,134× between the two compilations of one
   source text, and level with scikit-learn's hand-tuned Cython solver.

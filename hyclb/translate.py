@@ -300,6 +300,40 @@ RUNTIME = {
 
 RETURN_TYPES = {}
 
+# What SBCL derived, as opposed to what the programmer declared.  Kept apart
+# because they are used for different things: a declared return type becomes
+# an annotation, a derived one decides whether the fast path is safe.
+DERIVED_TYPES = {}
+
+
+def record_derived_type(entry):
+    """(name (values TYPE &optional)) as the expander reports it."""
+    if not (isinstance(entry, Cons) and isinstance(entry.car, Symbol)):
+        return
+    spec = entry.cdr.car if isinstance(entry.cdr, Cons) else None
+    if isinstance(spec, Cons) and isinstance(spec.car, Symbol) \
+            and spec.car.name == "values":
+        spec = spec.cdr.car if isinstance(spec.cdr, Cons) else None
+    DERIVED_TYPES[entry.car.name] = spec
+
+
+# Types no machine word holds.  RATIO and RATIONAL are the ones that arise in
+# practice, from exact division and from negative integer powers.
+_NOT_MACHINE = frozenset({"rational", "ratio"})
+
+
+def _warn(message):
+    import sys
+    sys.stderr.write("hyclb; " + message + "\n")
+
+
+def _type_head(spec):
+    if isinstance(spec, Symbol):
+        return spec.name
+    if isinstance(spec, Cons) and isinstance(spec.car, Symbol):
+        return spec.car.name
+    return None
+
 
 def _python_type(spec):
     """The Python annotation for a Common Lisp type specifier, if we know one."""
@@ -775,7 +809,19 @@ def _call(form):
             spec = _spec_declaration(raw[2:]) if len(raw) > 2 else None
             if spec is not None and _safety_level(raw[2:]) > 0:
                 return _checked_defun(form, raw, spec)
-            if _fast_declared(raw[2:]) and not _fast:
+            # A function whose value SBCL says is a RATIONAL cannot go to
+            # Numba: machine integers have no such value, and the failure is
+            # silent -- (expt 2 (- n)) is 1/2^n in Common Lisp and 0 there.
+            # This is the type-level form of the defect Section sec:sequences
+            # of the paper records, and it is refused rather than compiled.
+            if _fast_declared(raw[2:]) and not _fast \
+                    and isinstance(raw[0], Symbol) \
+                    and _type_head(DERIVED_TYPES.get(raw[0].name)) in _NOT_MACHINE:
+                _warn(f"{raw[0].name}: declared for speed, but SBCL derives a "
+                      f"return type of {_type_head(DERIVED_TYPES[raw[0].name]).upper()},"
+                      " which a machine word cannot hold; compiling it the"
+                      " ordinary way instead")
+            elif _fast_declared(raw[2:]) and not _fast:
                 _fast, _approx = True, _approx_declared(raw[2:])
                 try:
                     return _call(form)
@@ -790,7 +836,12 @@ def _call(form):
             types = _declared_types(raw[2:]) if len(raw) > 2 else {}
             if types:
                 args[1] = _annotate_params(args[1], types)
-            ret = RETURN_TYPES.get(raw[0].name) if isinstance(raw[0], Symbol) else None
+            # a declaimed ftype wins; otherwise take what SBCL derived
+            ret = None
+            if isinstance(raw[0], Symbol):
+                ret = RETURN_TYPES.get(raw[0].name)
+                if ret is None:
+                    ret = _python_type(DERIVED_TYPES.get(raw[0].name))
             if ret:
                 args[0] = _annotate(args[0], ret)
         if name in ("defun", "lambda", "defmethod"):
