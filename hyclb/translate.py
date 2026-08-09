@@ -314,7 +314,36 @@ def record_derived_type(entry):
     if isinstance(spec, Cons) and isinstance(spec.car, Symbol) \
             and spec.car.name == "values":
         spec = spec.cdr.car if isinstance(spec.cdr, Cons) else None
-    DERIVED_TYPES[entry.car.name] = spec
+    DERIVED_TYPES[entry.car.name] = _collapse_union(spec)
+
+
+def _collapse_union(spec):
+    """One specifier for a derived union.
+
+    SBCL 2.5 derives precise unions -- (or (member 0.0) (double-float (0.0)))
+    where 2.2 said DOUBLE-FLOAT -- and the head tests below would see only the
+    OR.  A MEMBER becomes the type of its literals, an OR whose branches agree
+    becomes its first branch, and an OR with a RATIONAL branch stays RATIONAL:
+    one possible ratio is enough to make a machine word wrong.
+    """
+    if not (isinstance(spec, Cons) and isinstance(spec.car, Symbol)):
+        return spec
+    if spec.car.name == "member":
+        kinds = {type(v) for v in _iter(spec.cdr)}
+        if kinds == {float}:
+            return Symbol("double-float")
+        if kinds == {int}:
+            return Symbol("integer")
+        return None
+    if spec.car.name == "or":
+        branches = [_collapse_union(b) for b in _iter(spec.cdr)]
+        if any(_type_head(b) in _NOT_MACHINE for b in branches):
+            return Symbol("rational")
+        kinds = {_python_type(b) for b in branches}
+        if len(kinds) == 1 and None not in kinds:
+            return branches[0]
+        return None
+    return spec
 
 
 # Types no machine word holds.  RATIO and RATIONAL are the ones that arise in

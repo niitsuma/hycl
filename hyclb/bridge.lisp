@@ -156,6 +156,11 @@ a line number, which is what a traceback shows."
 ;;; back as two *different* symbols -- which would silently break every
 ;;; expansion that binds a gensym and then refers to it.  Give each one a
 ;;; unique interned name before printing.
+;;;
+;;; The same walk undoes the occasional internal function that slips through
+;;; a standard macro's expansion.  SBCL 2.5 grew one: LOOP's collect starts
+;;; its accumulator with SB-KERNEL::UNALIGNED-DX-CONS, which is (cons ITEM
+;;; nil) plus an allocation hint no other Lisp -- and no Python -- has.
 
 (defvar *gsym-counter* 0)
 
@@ -168,6 +173,9 @@ a line number, which is what a traceback shows."
                       (setf (gethash x seen)
                             (intern (format nil "%G~d" (incf *gsym-counter*))
                                     :common-lisp-user))))
+                 ((and (consp x) (symbolp (car x)) (car x)
+                       (string= (symbol-name (car x)) "UNALIGNED-DX-CONS"))
+                  (list 'cons (walk (second x)) nil))
                  ((consp x) (cons (walk (car x)) (walk (cdr x))))
                  (t x))))
       (walk form))))
@@ -494,7 +502,21 @@ its uses would not match; interning them keeps them identical."
         (let ((*package* (find-package :common-lisp-user))
               (*readtable* *plain-readtable*)
               (*read-eval* nil))
-          (read-from-string text))))))
+          (strip-maxima-src (values (read-from-string text))))))))
+
+(defun maxima-src-note-p (x)
+  (and (consp x) (integerp (car x))
+       (find-if (lambda (e) (and (symbolp e) (string= (symbol-name e) "SRC")))
+                (cdr x))))
+
+(defun strip-maxima-src (x)
+  "Maxima built with source tracking -- 5.47 here -- hangs (LINE \"file\" SRC
+FN POS) notes in operator flag lists, and (string ...) on one of those is a
+type error in every reader of Maxima forms below.  They mean nothing on this
+side; drop them wherever they appear."
+  (if (consp x)
+      (mapcar #'strip-maxima-src (remove-if #'maxima-src-note-p x))
+      x))
 
 ;;; Maxima keeps expressions in its own prefix form; these two functions are
 ;;; the whole of the impedance match.

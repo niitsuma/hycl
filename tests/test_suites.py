@@ -10,6 +10,7 @@ optional: without the expander there is nothing to test.
 """
 
 import contextlib
+import functools
 import io
 import os
 import pathlib
@@ -44,11 +45,35 @@ def _has_quicklisp():
             / "setup.lisp").exists()
 
 
+@functools.cache
+def _lol_loads():
+    """let-over-lambda, loadable by this SBCL at all.
+
+    Its dependency lisp-namespace does not compile on every SBCL (2.5.11
+    with the 2026-01-01 dist: LISP-NAMESPACE::*NAMESPACE-TABLE* is unbound).
+    When plain SBCL cannot load the library, that is an upstream property,
+    not a hyclb failure, so the suite that uses it should skip.
+    """
+    if not _has_quicklisp():
+        return False
+    import subprocess
+    setup = (pathlib.Path(os.environ.get("QUICKLISP_HOME",
+                                         pathlib.Path.home() / "quicklisp"))
+             / "setup.lisp")
+    r = subprocess.run(
+        ["sbcl", "--non-interactive", "--no-userinit",
+         "--eval", f'(load "{setup}")',
+         "--eval", '(ql:quickload "let-over-lambda" :silent t)'],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+    return r.returncode == 0
+
+
 # What each suite needs beyond SBCL and hyclb itself.  A suite absent from
 # this table runs unconditionally.
 NEEDS = {
     "ql": [("Quicklisp", _has_quicklisp)],
-    "libraries": [("Quicklisp", _has_quicklisp)],
+    "libraries": [("Quicklisp", _has_quicklisp),
+                  ("let-over-lambda under this SBCL", _lol_loads)],
     "structs": [("torch", lambda: _has_module("torch"))],
     "sweep": [("torch", lambda: _has_module("torch")),
               ("lightning", lambda: _has_module("lightning"))],
