@@ -43,6 +43,10 @@ def intern(name, package="COMMON-LISP-USER"):
 NIL = Symbol("NIL", "COMMON-LISP")
 T = Symbol("T", "COMMON-LISP")
 
+# The one standard constant that is a number rather than a symbol.  CL's PI
+# is a long-float; a Python float is what a double-float program gets.
+from math import pi
+
 
 class Keyword(Symbol):
     __slots__ = ()

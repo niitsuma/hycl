@@ -32,9 +32,41 @@
   (:check (9 2021) 30)
   (:check (12 1999) 31))
 
+;; Symbolic regression, one prompt long.  Thirteen samples of an unnamed
+;; function, a tolerance, and no other hint: (:tolerance 0.01) turns every
+;; check into a fitted data point, so the instruction amounts to "find the
+;; function underneath these numbers".  Nothing here says sine -- the model
+;; recognises the shape and comes back with (sin x).  Had it answered with a
+;; polynomial instead, the checks would have judged the fit the same way.
+(defllm recovered-f (x)
+  "a smooth closed-form function fitting the sampled points"
+  (:tolerance 0.01)
+  (:check (0.0) 0.0)
+  (:check (0.5236) 0.5)
+  (:check (1.0472) 0.866)
+  (:check (1.5708) 1.0)
+  (:check (2.0944) 0.866)
+  (:check (2.618) 0.5)
+  (:check (3.1416) 0.0)
+  (:check (3.6652) -0.5)
+  (:check (4.1888) -0.866)
+  (:check (4.7124) -1.0)
+  (:check (5.236) -0.866)
+  (:check (5.7596) -0.5)
+  (:check (6.2832) 0.0))
+
 (defun main ()
   (print (list 'clamped (clamp 99 0 7)))
   (print (list 'february 2100 'has (days-in-month 2 2100) 'days))
+  ;; the recovered function against the sine the samples were taken from,
+  ;; on a hundred points the model never saw
+  (py-import math)
+  (let ((worst 0.0))
+    (dotimes (i 100)
+      (let* ((x (/ (* i 6.29) 100))
+             (d (abs (- (recovered-f x) (math.sin x)))))
+        (when (> d worst) (setq worst d))))
+    (print (list 'recovered-f 'max-error-vs-sin worst)))
   ;; inputs the model never saw, checked against Python's own calendar
   (py-import calendar)
   (let ((ok t))

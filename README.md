@@ -139,12 +139,32 @@ different program, `HYCLB_LLM_MODEL` a different model. Credentials are the
 program's own affair; nothing secret appears in the source being compiled or
 in this repository.
 
-[`tests/llm.lisp`](tests/llm.lisp) is the checked version of the example: the
+A `(:tolerance eps)` clause loosens the numeric comparisons, and that turns
+the checks into sampled data: give the model measured points and ask it for
+the function underneath. In `examples/llm_macro.lisp` thirteen samples of an
+unnamed function go in with `(:tolerance 0.01)` and nothing that says sine —
+the model recognises the shape in the numbers and comes back with `(sin x)`,
+which the example then compares against the sine the samples were taken from
+on a hundred points the model never saw. Symbolic regression, one prompt
+long; had the model answered with a polynomial instead, the checks would
+have judged the fit the same way.
+
+```lisp
+(defllm recovered-f (x)
+  "a smooth closed-form function fitting the sampled points"
+  (:tolerance 0.01)
+  (:check (0.0) 0.0)
+  (:check (0.5236) 0.5)
+  (:check (1.0472) 0.866)
+  ;; … thirteen points over one period …
+  (:check (6.2832) 0.0))
+```
+
+[`tests/llm.lisp`](tests/llm.lisp) is the checked version of all of this: the
 expansion-time checks prove the Lisp, and the suite then proves the
-translation — on inputs the model never saw. `examples/llm_macro.lisp` goes
-one step further and compares `days-in-month`, written by the model from one
-English sentence, against Python's own `calendar` module for sixty
-month/year pairs.
+translation — on inputs the model never saw. `examples/llm_macro.lisp` does
+the same for `days-in-month`, written by the model from one English
+sentence, against Python's own `calendar` module for sixty month/year pairs.
 
 ### Bring existing Python into the Lisp
 

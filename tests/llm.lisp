@@ -39,3 +39,18 @@
 (deftest days-plain-february 28 (days-in-month 2 2027))
 (deftest days-april 30 (days-in-month 4 2026))
 (deftest days-century 28 (days-in-month 2 2100))
+
+;;; (:tolerance EPS) loosens the numeric comparisons.  Necessary even for an
+;;; exact-sounding task: the model answers (* pi r r), and pi times a float
+;;; can never hit a four-digit literal exactly.  With samples instead of
+;;; specifications it becomes regression -- see examples/llm_macro.lisp,
+;;; where thirteen unlabelled points of a sine come back as (sin x).
+
+(defllm circle-area (r)
+  "the area of a circle of radius r"
+  (:tolerance 1e-3)
+  (:check (1.0) 3.1416)
+  (:check (2.0) 12.5664))
+
+(deftest circle-area-r10 t
+  (if (< (abs (- (circle-area 10.0) 314.1592653589793)) 0.1) t nil))

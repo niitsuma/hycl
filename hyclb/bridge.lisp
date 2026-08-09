@@ -750,15 +750,17 @@ bare expression, but only reading can enforce it."
           do (handler-case (return (values (read-from-string text t nil :start i)))
                (error () nil)))))
 
-(defun llm-close-enough (got want)
+(defun llm-close-enough (got want tolerance)
   (cond ((and (numberp got) (numberp want))
-         (or (eql got want)
-             (< (abs (- got want)) (* 1d-9 (max 1 (abs got) (abs want))))))
+         (if tolerance
+             (< (abs (- got want)) tolerance)
+             (or (eql got want)
+                 (< (abs (- got want)) (* 1d-9 (max 1 (abs got) (abs want)))))))
         ;; EQUALP would fold string case, and accept "iv" for "IV"
         ((and (stringp got) (stringp want)) (string= got want))
         (t (equalp got want))))
 
-(defun llm-run-checks (params body checks)
+(defun llm-run-checks (params body checks tolerance)
   "NIL if BODY passes every check, else one sentence saying how it failed,
 phrased for the model to read."
   (let ((fn (handler-case
@@ -774,14 +776,14 @@ phrased for the model to read."
                          (format nil "signalled \"~a\" with ~{~a = ~s~^, ~}"
                                  e (mapcan #'list (copy-list params)
                                            (copy-list args))))))))
-          (unless (llm-close-enough got want)
+          (unless (llm-close-enough got want tolerance)
             (return-from llm-run-checks
               (format nil "evaluated to ~s with ~{~a = ~s~^, ~} where ~s ~
                            is required"
                       got (mapcan #'list (copy-list params) (copy-list args))
                       want))))))))
 
-(defun llm-defun-body (name params description checks)
+(defun llm-defun-body (name params description checks tolerance)
   "A body expression for NAME that passes every check, or an error.
 Formatting and reading both happen under the standard readtable in CL-USER:
 the model speaks plain Common Lisp, not the :invert dialect of the source."
@@ -791,7 +793,8 @@ the model speaks plain Common Lisp, not the :invert dialect of the source."
 Lisp expression and nothing else: no markdown, no comments, no DEFUN ~
 wrapper.  Use only standard Common Lisp operators and functions.")
           (task (format nil "Write the body of a Common Lisp function ~a ~
-with parameters ~a.  It computes: ~a.~{  With ~a the value must be ~s.~}"
+with parameters ~a.  It computes: ~a.~{  With ~a the value must be ~s.~}~
+~@[  Each value must match within ~a.~]"
                         name params description
                         (mapcan (lambda (c)
                                   (list (format nil "~{~a = ~s~^, ~}"
@@ -799,13 +802,14 @@ with parameters ~a.  It computes: ~a.~{  With ~a the value must be ~s.~}"
                                                         (copy-list params)
                                                         (copy-list (first c))))
                                         (second c)))
-                                checks)))
+                                checks)
+                        tolerance))
           (verdict "was never asked"))
       (dotimes (attempt 3)
         (let* ((reply (llm-ask task :system (format nil system)))
                (body (llm-first-form reply)))
           (setf verdict (if body
-                            (llm-run-checks params body checks)
+                            (llm-run-checks params body checks tolerance)
                             "contained no readable Lisp expression"))
           (when (null verdict)
             (return-from llm-defun-body body))
@@ -823,18 +827,28 @@ mandatory -- an answer nothing constrains is prose, not code -- and they are
 shown to the model, so one set of literals serves as examples and acceptance
 test at once.  A body that fails is sent back with the failing case up to
 twice; a third failure is a compile-time error, the same treatment DEFSUM
-gives a sum that does not telescope."
-  (unless checks
-    (error "defllm ~a: no :check clauses.  An unchecked answer from a ~
-            model is not code; state what the function must return on at ~
-            least one input." name))
-  (dolist (c checks)
-    (unless (and (consp c) (eq (car c) :check)
-                 (= (length c) 3) (listp (second c)))
-      (error "defllm ~a: malformed clause ~s; expected (:check (args...) value)"
-             name c)))
-  `(defun ,name ,params
-     ,(llm-defun-body name params description (mapcar #'cdr checks))))
+gives a sum that does not telescope.
+
+A (:tolerance EPS) clause loosens every numeric comparison to within EPS of
+the check value, which turns the checks into sampled data: give the model
+measured points and ask it for the function underneath."
+  (let ((tolerance nil) (cases '()))
+    (dolist (c checks)
+      (cond ((and (consp c) (eq (car c) :tolerance)
+                  (= (length c) 2) (realp (second c)))
+             (setf tolerance (second c)))
+            ((and (consp c) (eq (car c) :check)
+                  (= (length c) 3) (listp (second c)))
+             (push (cdr c) cases))
+            (t (error "defllm ~a: malformed clause ~s; expected ~
+                       (:check (args...) value) or (:tolerance eps)"
+                      name c))))
+    (unless cases
+      (error "defllm ~a: no :check clauses.  An unchecked answer from a ~
+              model is not code; state what the function must return on at ~
+              least one input." name))
+    `(defun ,name ,params
+       ,(llm-defun-body name params description (nreverse cases) tolerance))))
 
 ;;; ------------------------------------------------------------------
 ;;; DEFSUM: summed-area tables derived from the sum itself.
