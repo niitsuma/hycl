@@ -100,6 +100,52 @@ agree             = True
 The full program also trains a small network through the derived activation,
 because the point is that nothing downstream can tell.
 
+### The same seat, occupied by a language model
+
+The expander may consult any process it likes while the program compiles, and
+[`examples/llm_macro.lisp`](examples/llm_macro.lisp) puts a local LLM where
+the previous example put Maxima. The difference is trust: algebra is
+accepted, a sampled answer never is, so `defllm` refuses to expand without
+`:check` clauses, evaluates the model's expression against them in SBCL, and
+sends a failure back for another attempt. Three failures are a compile-time
+error, the same treatment `defsum` gives a sum that does not telescope.
+
+```lisp
+(defllm clamp (x lo hi)
+  "x limited to the closed interval [lo, hi]"
+  (:check (5 0 10) 5)
+  (:check (-3 0 10) 0)
+  (:check (42 0 10) 10))
+```
+
+What survives is an ordinary `defun` — this one comes back as
+`(max lo (min x hi))` — translated like anything else. The compiled program
+depends on the model exactly as much as it depends on Maxima, which is not at
+all, and since compiled modules are cached as bytecode, the model is consulted
+when the source changes, not on every run.
+
+The model is reached through a command-line program, `ask-local` by default:
+it is called as
+
+```console
+$ ask-local --model qwen3.6 --max-tokens 400 --system "You write Common Lisp. …" \
+    "Write the body of a Common Lisp function CLAMP with parameters (X LO HI). …"
+(max lo (min x hi))
+```
+
+and anything with that shape will do — a script around `llama.cpp`, an
+OpenAI-compatible endpoint, whatever is local and cheap. `HYCLB_LLM` names a
+different program, `HYCLB_LLM_MODEL` a different model. Credentials are the
+program's own affair; nothing secret appears in the source being compiled or
+in this repository.
+
+[`tests/llm.lisp`](tests/llm.lisp) is the checked version of the example: the
+expansion-time checks prove the Lisp, and the suite then proves the
+translation — on inputs the model never saw. `examples/llm_macro.lisp` goes
+one step further and compares `days-in-month`, written by the model from one
+English sentence, against Python's own `calendar` module for sixty
+month/year pairs.
+
 ### Bring existing Python into the Lisp
 
 `hyclb.frompy` walks Python's own `ast` and emits Common Lisp — not Hy, which
@@ -181,6 +227,7 @@ print(module.square(7))
 | `lagrangian.lisp` | equations of motion derived from a Lagrangian, then simulated |
 | `sequences.lisp` | a recurrence solved symbolically, streamed lazily, compiled to machine code |
 | `defsum.lisp` | summed-area tables derived from the sum itself, and `lift-sums`, which recognises the naive nest and rewrites it back into one: the box-sum recurrence is obtained by telescoping in Maxima, refused when it does not hold, and the generated code is checked against the naive sum before it is accepted |
+| `llm.lisp` | a function body written by a local LLM at macroexpansion time, admitted only after passing its `:check` clauses in SBCL |
 | `tailcall.lisp` | self-tail recursion compiled to a loop; mutual recursion left alone |
 | `lasso.lisp` | LASSO by coordinate descent, compiled three ways; `benchmarks/lasso.py` times them against NumPy, scikit-learn and cuML |
 | `sweep.lisp` | a hyperparameter grid built at compile time, driving PyTorch Lightning |

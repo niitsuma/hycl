@@ -696,6 +696,147 @@ The equation is written with AREF, so (aref a (+ n 1)) is Maxima's a[n+1]."
 (defun maxima-factor (expr) (maxima-apply "$factor" expr))
 
 ;;; ------------------------------------------------------------------
+;;; DEFLLM: a language model in Maxima's seat.
+;;;
+;;; The expander may consult any process it likes, and a local model is one
+;;; more: prompted while the program compiles, gone by the time it runs.  The
+;;; difference from Maxima is trust.  Algebra Maxima returns is accepted as
+;;; such; an answer sampled from a model never is.  DEFLLM therefore refuses
+;;; to expand without :CHECK clauses, evaluates the model's expression
+;;; against them here in SBCL, and feeds each failure back for another
+;;; attempt.  What survives is an ordinary DEFUN, translated like anything
+;;; else -- the compiled program depends on the model exactly as much as it
+;;; depends on Maxima, which is not at all.  And since compiled .lisp modules
+;;; are cached as bytecode, the model is consulted when the source changes,
+;;; not on every run.
+;;;
+;;; The checks run in this image, so they establish the expression is right
+;;; in Common Lisp terms; whether its translation is right in Python is the
+;;; test suite's business, the same as for handwritten code.
+
+(defvar *llm-program* (or (sb-ext:posix-getenv "HYCLB_LLM") "ask-local")
+  "A command that takes a prompt and prints one completion, called as
+PROGRAM --model M --max-tokens N [--system S] PROMPT.  Whatever
+authentication it needs is its own affair; nothing secret appears here or in
+the source being compiled.  HYCLB_LLM overrides the default.")
+
+(defvar *llm-model* (or (sb-ext:posix-getenv "HYCLB_LLM_MODEL") "qwen3.6"))
+
+(defun llm-ask (prompt &key system (max-tokens 400))
+  "One completion from the local model, as a string."
+  (let* ((out (make-string-output-stream))
+         (p (ignore-errors
+              (sb-ext:run-program
+               *llm-program*
+               (append (list "--model" *llm-model*
+                             "--max-tokens" (princ-to-string max-tokens))
+                       (when system (list "--system" system))
+                       (list prompt))
+               :search t :output out :error nil :wait t))))
+    (unless (and p (eql 0 (sb-ext:process-exit-code p)))
+      (error "~a did not answer; nothing that expands through the model ~
+              can compile without it" *llm-program*))
+    (get-output-stream-string out)))
+
+(defun llm-first-form (text)
+  "The first complete s-expression in TEXT.  Whatever surrounds it -- prose,
+markdown fences -- is skipped rather than forbidden: a prompt can ask for the
+bare expression, but only reading can enforce it."
+  (let ((*package* (find-package :common-lisp-user))
+        (*readtable* *plain-readtable*)
+        (*read-eval* nil))
+    (loop for i = (position #\( text) then (position #\( text :start (1+ i))
+          while i
+          do (handler-case (return (values (read-from-string text t nil :start i)))
+               (error () nil)))))
+
+(defun llm-close-enough (got want)
+  (cond ((and (numberp got) (numberp want))
+         (or (eql got want)
+             (< (abs (- got want)) (* 1d-9 (max 1 (abs got) (abs want))))))
+        ;; EQUALP would fold string case, and accept "iv" for "IV"
+        ((and (stringp got) (stringp want)) (string= got want))
+        (t (equalp got want))))
+
+(defun llm-run-checks (params body checks)
+  "NIL if BODY passes every check, else one sentence saying how it failed,
+phrased for the model to read."
+  (let ((fn (handler-case
+                (handler-bind ((warning #'muffle-warning))
+                  (eval `(lambda ,params ,body)))
+              (error (e) (return-from llm-run-checks
+                           (format nil "did not compile: ~a" e))))))
+    (dolist (c checks nil)
+      (destructuring-bind (args want) c
+        (let ((got (handler-case (apply fn args)
+                     (error (e)
+                       (return-from llm-run-checks
+                         (format nil "signalled \"~a\" with ~{~a = ~s~^, ~}"
+                                 e (mapcan #'list (copy-list params)
+                                           (copy-list args))))))))
+          (unless (llm-close-enough got want)
+            (return-from llm-run-checks
+              (format nil "evaluated to ~s with ~{~a = ~s~^, ~} where ~s ~
+                           is required"
+                      got (mapcan #'list (copy-list params) (copy-list args))
+                      want))))))))
+
+(defun llm-defun-body (name params description checks)
+  "A body expression for NAME that passes every check, or an error.
+Formatting and reading both happen under the standard readtable in CL-USER:
+the model speaks plain Common Lisp, not the :invert dialect of the source."
+  (let ((*package* (find-package :common-lisp-user))
+        (*readtable* *plain-readtable*))
+    (let ((system "You write Common Lisp.  Reply with exactly one Common ~
+Lisp expression and nothing else: no markdown, no comments, no DEFUN ~
+wrapper.  Use only standard Common Lisp operators and functions.")
+          (task (format nil "Write the body of a Common Lisp function ~a ~
+with parameters ~a.  It computes: ~a.~{  With ~a the value must be ~s.~}"
+                        name params description
+                        (mapcan (lambda (c)
+                                  (list (format nil "~{~a = ~s~^, ~}"
+                                                (mapcan #'list
+                                                        (copy-list params)
+                                                        (copy-list (first c))))
+                                        (second c)))
+                                checks)))
+          (verdict "was never asked"))
+      (dotimes (attempt 3)
+        (let* ((reply (llm-ask task :system (format nil system)))
+               (body (llm-first-form reply)))
+          (setf verdict (if body
+                            (llm-run-checks params body checks)
+                            "contained no readable Lisp expression"))
+          (when (null verdict)
+            (return-from llm-defun-body body))
+          (setf task (format nil "~a~%Your previous reply~@[ ~s~] ~a.  ~
+Reply with one corrected expression only." task body verdict))))
+      (error "defllm ~a: three answers from ~a all failed; the last ~a"
+             name *llm-model* verdict))))
+
+(defmacro cl-user::defllm (name params description &rest checks)
+  "Define NAME from an English DESCRIPTION; the body is written by the local
+model while the program compiles.
+
+Each check is (:check (args...) value), all literal data.  Checks are
+mandatory -- an answer nothing constrains is prose, not code -- and they are
+shown to the model, so one set of literals serves as examples and acceptance
+test at once.  A body that fails is sent back with the failing case up to
+twice; a third failure is a compile-time error, the same treatment DEFSUM
+gives a sum that does not telescope."
+  (unless checks
+    (error "defllm ~a: no :check clauses.  An unchecked answer from a ~
+            model is not code; state what the function must return on at ~
+            least one input." name))
+  (dolist (c checks)
+    (unless (and (consp c) (eq (car c) :check)
+                 (= (length c) 3) (listp (second c)))
+      (error "defllm ~a: malformed clause ~s; expected (:check (args...) value)"
+             name c)))
+  `(defun ,name ,params
+     ,(llm-defun-body name params description (mapcar #'cdr checks))))
+
+;;; ------------------------------------------------------------------
 ;;; DEFSUM: summed-area tables derived from the sum itself.
 ;;;
 ;;; The source form is the specification -- a nested sum over axis-aligned
@@ -1128,7 +1269,7 @@ checked against the naive sum before it is accepted."
     (defsum-selfcheck name build query naive axes summand element-type)
     `(progn ,build ,query ,naive)))
 
-(import '(lift-prefix-nest lift-walk lift-check
+(import '(lift-prefix-nest lift-walk lift-check llm-ask
           maxima-diff maxima-integrate maxima-simplify maxima-expand
           maxima-factor maxima-apply lisp->maxima maxima->lisp
           maxima-taylor maxima-optimize maxima-horner maxima-solve

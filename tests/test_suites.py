@@ -88,6 +88,10 @@ NEEDS = {
     "lasso": [("numpy", lambda: _has_module("numpy"))],
     "defsum": [("Maxima", lambda: shutil.which("maxima")),
                ("numpy", lambda: _has_module("numpy"))],
+    # which(1) cannot tell whether a server answers behind the CLI; probing
+    # on every run would cost more than the suite, so a dead server fails
+    # rather than skips
+    "llm": [("ask-local", lambda: shutil.which("ask-local"))],
 }
 
 

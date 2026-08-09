@@ -1,11 +1,21 @@
 # Examples
 
-The one self-contained example lives here:
+Two self-contained examples live here:
 
 * **`main.py` + `model_math.lisp`** — an ordinary Python program that grew a
   Lisp module. The activation function's backward pass was derived by Maxima
   while the program was compiled, so Torch never builds a tape for it. Run it
   twice with SBCL off the `PATH` the second time; it still works.
+* **`llm_macro.lisp`** — a local LLM in Maxima's seat: `defllm` turns an
+  English description into a function body at macroexpansion time, admits it
+  only after it passes its `:check` clauses in SBCL, and `main` then compares
+  the result against Python's own `calendar` module. Needs the `ask-local`
+  CLI (or set `HYCLB_LLM`); see the README section on it.
+
+  ```console
+  $ python -c "from hyclb.api import cl_load, new_module; \
+      m = new_module('llm'); cl_load('examples/llm_macro.lisp', m); m.main()"
+  ```
 
 Everything else is in `../tests`, because those files assert their results and
 so cannot quietly rot. They are written to be read:
@@ -19,6 +29,7 @@ so cannot quietly rot. They are written to be read:
 | `robust.lisp` | the front-page example: three functions calling each other, LOOP over numpy statistics |
 | `from_python.py` | an existing Python loop translated into Lisp, then declared fast |
 | `defsum.lisp` | write the sum, get the integral image: O(n^4) as specification, O(n^2) as derived implementation |
+| `llm.lisp` | a local LLM in Maxima's seat: an English description becomes a function body at macroexpansion time, admitted only after passing its `:check` clauses in SBCL |
 | `lasso.lisp` | one algorithm, three compilations: what `(optimize (speed 3))` and `(float-accuracy 0)` are each worth |
 | `maxima.lisp` | symbolic differentiation performed while the program compiles |
 | `maxima-apps.lisp` | analytic gradients replacing a backward pass, common subexpression elimination, series, identity checking |
