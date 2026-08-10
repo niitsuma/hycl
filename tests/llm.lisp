@@ -75,3 +75,27 @@
   (if (string= (ask-llm "Name one primary colour.  One word.")
                (ask-llm "Name one primary colour.  One word."))
       t nil))
+
+;;; The other two doors return code rather than data, and each is checked by
+;;; the compiler of the language it is written in.  One request, asked three
+;;; ways: x*y plus the numeric value of pi.
+
+(defun lisp-arm (x y)
+  ;; SBCL compiles this answer here; :FREE is what lets it call every other
+  ;; name undefined.  It comes back as (+ (* x y) pi).
+  (ask-llm-form "x times y, plus the numeric value of pi" :free (x y)))
+
+(defun python-arm (x y)
+  ;; CPython parses this one and frompy translates it.  It comes back as
+  ;; math.pi, and the import it needs is read off the dotted name -- an
+  ;; expression has no room to say `import math` for itself.
+  (ask-llm-python "x*y plus the numeric value of pi"))
+
+(defmacro defclose (name expected form)
+  `(let ((got ,form))
+     (if (< (abs (- got ,expected)) 1e-9) (print (list 'pass ',name))
+         (print (list 'FAIL ',name 'got got)))))
+
+(defclose ask-llm-form-computes (+ 12.0 pi) (lisp-arm 3.0 4.0))
+(defclose ask-llm-python-computes (+ 12.0 pi) (python-arm 3.0 4.0))
+(defclose ask-llm-arms-agree 0.0 (- (lisp-arm 2.5 4.0) (python-arm 2.5 4.0)))

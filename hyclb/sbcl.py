@@ -22,6 +22,11 @@ class LispError(RuntimeError):
 
 class Sbcl:
     def __init__(self, command=("sbcl", "--script"), bridge=_BRIDGE):
+        # The expander sometimes has to ask what Python makes of a piece of
+        # source.  Tell it which interpreter to ask -- this one, the one the
+        # compiled program will run on, not whatever `python` happens to mean
+        # on the PATH inside a subprocess.
+        env = dict(os.environ, HYCLB_PYTHON=sys.executable)
         self.proc = subprocess.Popen(
             list(command) + [bridge],
             stdin=subprocess.PIPE,
@@ -29,6 +34,7 @@ class Sbcl:
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
+            env=env,
         )
         # The expander reports things worth hearing -- a spec it could not
         # check, a library that failed to load.  Swallowing them means

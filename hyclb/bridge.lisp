@@ -843,9 +843,15 @@ unused parameter is not a mistake, a function that does not exist is."
                                    (search "undefined" (princ-to-string c)))
                            (note c))
                          (muffle-warning c))))
-                  (compile nil `(lambda ,params
-                                  (declare (ignorable ,@params))
-                                  ,body)))
+                  ;; :OVERRIDE so the "caught 1 WARNING condition" summary
+                  ;; belongs to this compilation and is printed inside the
+                  ;; binding above.  Without it the summary is deferred to
+                  ;; whatever unit encloses the expansion and a rejected
+                  ;; answer leaves a complaint on the user's terminal.
+                  (with-compilation-unit (:override t)
+                    (compile nil `(lambda ,params
+                                    (declare (ignorable ,@params))
+                                    ,body))))
               (declare (ignore warnings-p))
               (cond (notes (values nil (format nil "does not compile: ~{~a~^; ~}"
                                                (nreverse notes))))
@@ -877,40 +883,187 @@ it failed, phrased for the model to read."
                       got (mapcan #'list (copy-list params) (copy-list args))
                       want))))))))
 
+(defvar *llm-lisp-system*
+  "You write Common Lisp.  Reply with exactly one Common Lisp expression and
+nothing else: no markdown, no comments, no DEFUN wrapper.  Use only standard
+Common Lisp operators and functions.")
+
+(defvar *llm-python-system*
+  "You write Python.  Reply with exactly one Python expression and nothing
+else: no markdown, no statements, no assignment, no import, no def.  It must
+be something that could appear on the right of an equals sign.")
+
+(defun llm-abbrev (text &optional (limit 120))
+  (if (> (length text) limit)
+      (concatenate 'string (subseq text 0 limit) "...")
+      text))
+
+(defun llm-attempt (label task system max-tokens judge)
+  "Ask, judge, and ask again with the complaint -- three times at most.
+
+JUDGE receives the reply text and returns the accepted value, or NIL and a
+second value saying what was wrong, phrased for the model to read.  The
+complaint is what makes the second attempt worth making: a model told that
+its answer called an undefined function usually fixes exactly that."
+  (let ((verdict "was never asked"))
+    (dotimes (attempt 3)
+      (let ((reply (llm-ask task :system system :max-tokens max-tokens)))
+        (multiple-value-bind (value complaint) (funcall judge reply)
+          (unless complaint (return-from llm-attempt value))
+          (setf verdict complaint)
+          (setf task (format nil "~a~%Your previous reply ~s ~a.  Reply once ~
+more, corrected, with nothing but the answer."
+                             task (llm-abbrev reply) verdict)))))
+    (error "~a: three answers from ~a all failed; the last ~a"
+           label *llm-model* verdict)))
+
 (defun llm-defun-body (name params description checks tolerance)
   "A body expression for NAME that passes every check, or an error.
 Formatting and reading both happen under the standard readtable in CL-USER:
 the model speaks plain Common Lisp, not the :invert dialect of the source."
   (let ((*package* (find-package :common-lisp-user))
         (*readtable* *plain-readtable*))
-    (let ((system "You write Common Lisp.  Reply with exactly one Common ~
-Lisp expression and nothing else: no markdown, no comments, no DEFUN ~
-wrapper.  Use only standard Common Lisp operators and functions.")
-          (task (format nil "Write the body of a Common Lisp function ~a ~
-with parameters ~a.  It computes: ~a.~{  With ~a the value must be ~s.~}~
+    (llm-attempt
+     (format nil "defllm ~a" name)
+     (format nil "Write the body of a Common Lisp function ~a with ~
+parameters ~a.  It computes: ~a.~{  With ~a the value must be ~s.~}~
 ~@[  Each value must match within ~a.~]"
-                        name params description
-                        (mapcan (lambda (c)
-                                  (list (format nil "~{~a = ~s~^, ~}"
-                                                (mapcan #'list
-                                                        (copy-list params)
-                                                        (copy-list (first c))))
-                                        (second c)))
-                                checks)
-                        tolerance))
-          (verdict "was never asked"))
-      (dotimes (attempt 3)
-        (let* ((reply (llm-ask task :system (format nil system)))
-               (body (llm-first-form reply)))
-          (setf verdict (if body
-                            (llm-run-checks params body checks tolerance)
-                            "contained no readable Lisp expression"))
-          (when (null verdict)
-            (return-from llm-defun-body body))
-          (setf task (format nil "~a~%Your previous reply~@[ ~s~] ~a.  ~
-Reply with one corrected expression only." task body verdict))))
-      (error "defllm ~a: three answers from ~a all failed; the last ~a"
-             name *llm-model* verdict))))
+             name params description
+             (mapcan (lambda (c)
+                       (list (format nil "~{~a = ~s~^, ~}"
+                                     (mapcan #'list
+                                             (copy-list params)
+                                             (copy-list (first c))))
+                             (second c)))
+                     checks)
+             tolerance)
+     *llm-lisp-system*
+     400
+     (lambda (reply)
+       (let ((body (llm-first-form reply)))
+         (if (null body)
+             (values nil "contained no readable Lisp expression")
+             (let ((complaint (llm-run-checks params body checks tolerance)))
+               (if complaint (values nil complaint) (values body nil)))))))))
+
+;;; The three doors, one per kind of answer.  ASK-LLM takes a string, which
+;;; nothing can check and nothing needs to; ASK-LLM-FORM takes Lisp, which
+;;; SBCL checks; ASK-LLM-PYTHON takes Python, which CPython checks.  Each
+;;; snippet is judged by the compiler of the language it is written in --
+;;; there is no third party guessing, and no language is judged by a
+;;; compiler that cannot see its mistakes.
+
+(defun llm-code-block (text)
+  "The code in TEXT: what lies between the first pair of ``` fences, or the
+whole reply when the model did as it was told and sent code alone."
+  (let ((trimmed (string-trim '(#\Space #\Tab #\Newline #\Return) text)))
+    (let ((start (search "```" trimmed)))
+      (if (null start)
+          trimmed
+          (let* ((nl (position #\Newline trimmed :start start))
+                 (from (if nl (1+ nl) (+ start 3)))
+                 ;; :START2 -- SEARCH indexes the sequence being searched
+                 ;; with 2; :START is not one of its keywords at all
+                 (end (search "```" trimmed :start2 from)))
+            (string-trim '(#\Space #\Tab #\Newline #\Return)
+                         (subseq trimmed from (or end (length trimmed)))))))))
+
+(defun python-expression-form (source)
+  "SOURCE as a Common Lisp form, or NIL and a complaint.
+
+CPython parses it, which is its own verdict on whether it is an expression
+at all, and hyclb's own frompy turns it into the forms a .py file would have
+translated to.  Nothing downstream special-cases the result: by the time it
+is spliced in it is ordinary translated Lisp."
+  (let* ((python (or (sb-ext:posix-getenv "HYCLB_PYTHON") "python3"))
+         (out (make-string-output-stream))
+         (err (make-string-output-stream))
+         (p (ignore-errors
+              (sb-ext:run-program python
+                                  (list "-m" "hyclb.frompy" "--expression" source)
+                                  :search t :output out :error err :wait t))))
+    (cond
+      ((null p) (values nil "could not be checked: no Python to ask"))
+      ((not (eql 0 (sb-ext:process-exit-code p)))
+       (values nil (format nil "is not an expression Python accepts: ~a"
+                           (string-trim '(#\Space #\Newline #\Return)
+                                        (get-output-stream-string err)))))
+      (t
+       (handler-case
+           ;; :invert, the same readtable user source is read with, so a
+           ;; Python identifier keeps the spelling frompy gave it
+           (values (let ((*package* (find-package :common-lisp-user))
+                         (*readtable* *user-readtable*)
+                         (*read-eval* nil))
+                     (read-from-string (get-output-stream-string out)))
+                   nil)
+         (error (e)
+           (values nil (format nil "translated to Lisp that will not read: ~a"
+                               e))))))))
+
+(defmacro cl-user::ask-llm-form (question &key free system (max-tokens 400))
+  "The model's answer as Common Lisp code, spliced in where the macro stood.
+
+FREE names the variables the expression is allowed to use.  It is what makes
+the answer checkable: with it, SBCL compiles the form here and calls every
+other name it mentions undefined.  The form is compiled, never run, and the
+compiler's complaint is what goes back to the model.
+
+Nothing checks that the code does what was asked -- that is DEFLLM's job,
+and if the answer matters this is the wrong macro."
+  (let* ((prompt (eval question))
+         (key (list :form prompt free system max-tokens)))
+    (unless (stringp prompt)
+      (error "ask-llm-form: the question must evaluate to a string, not ~s"
+             prompt))
+    (multiple-value-bind (hit found) (gethash key *llm-memo*)
+      (if found
+          hit
+          (setf (gethash key *llm-memo*)
+                (let ((*package* (find-package :common-lisp-user))
+                      (*readtable* *plain-readtable*))
+                  (llm-attempt
+                   "ask-llm-form"
+                   (format nil "~a~@[  The expression may use these ~
+variables and nothing else: ~{~a~^, ~}.~]" prompt free)
+                   (or system *llm-lisp-system*)
+                   max-tokens
+                   (lambda (reply)
+                     (let ((form (llm-first-form reply)))
+                       (if (null form)
+                           (values nil "contained no readable Lisp expression")
+                           (multiple-value-bind (fn complaint)
+                               (llm-compile free form)
+                             (declare (ignore fn))
+                             (if complaint
+                                 (values nil complaint)
+                                 (values form nil)))))))))))))
+
+(defmacro cl-user::ask-llm-python (question &key system (max-tokens 400))
+  "The model's answer as a Python expression, translated and spliced in.
+
+The reply goes to CPython to be parsed and to frompy to be translated, so
+what lands in the program is the same Lisp a .py file would have produced.
+A reply Python rejects goes back to the model with the SyntaxError.
+
+Python cannot say whether the names exist -- it resolves them when the code
+runs -- so this door is looser than ASK-LLM-FORM by exactly that much."
+  (let* ((prompt (eval question))
+         (key (list :python prompt system max-tokens)))
+    (unless (stringp prompt)
+      (error "ask-llm-python: the question must evaluate to a string, not ~s"
+             prompt))
+    (multiple-value-bind (hit found) (gethash key *llm-memo*)
+      (if found
+          hit
+          (setf (gethash key *llm-memo*)
+                (llm-attempt
+                 "ask-llm-python"
+                 prompt
+                 (or system *llm-python-system*)
+                 max-tokens
+                 (lambda (reply)
+                   (python-expression-form (llm-code-block reply)))))))))
 
 (defmacro cl-user::defllm (name params description &rest checks)
   "Define NAME from an English DESCRIPTION; the body is written by the local

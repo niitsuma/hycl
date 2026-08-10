@@ -29,6 +29,7 @@ than guessing.
 """
 
 import ast
+import importlib
 import sys
 
 from . import translate
@@ -986,15 +987,74 @@ def translate_file(path):
         return translate_source(f.read(), path)
 
 
+def _expression_imports(tree):
+    """Modules a bare expression assumes someone imported.
+
+    A .py file says `import math` and frompy emits `(py-import math)`; an
+    expression standing on its own has no room to say it, and `math.pi` then
+    compiles to a name that does not exist.  So the modules are read off the
+    dotted names instead.  Importability is decided by importing, not by
+    find_spec: a package whose own dependencies are missing has a spec.
+    """
+    bound = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.comprehension):
+            bound |= {n.id for n in ast.walk(node.target)
+                      if isinstance(n, ast.Name)}
+        elif isinstance(node, ast.Lambda):
+            bound |= {a.arg for a in node.args.args}
+    roots = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            base = node
+            while isinstance(base, ast.Attribute):
+                base = base.value
+            if isinstance(base, ast.Name) and base.id not in bound:
+                roots.append(base.id)
+    out = []
+    for name in dict.fromkeys(roots):
+        try:
+            importlib.import_module(name)
+        except Exception:
+            continue
+        out.append(name)
+    return out
+
+
+def translate_expression(source):
+    """One Python expression as Common Lisp source text.
+
+    `ast.parse` in "eval" mode is Python's own answer to "is this a valid
+    expression", which is why the expander calls this rather than deciding
+    for itself: a SyntaxError here is CPython's verdict, not a guess.
+    """
+    tree = ast.parse(source, mode="eval")
+    form = Translator(()).expr(tree.body)
+    imports = _expression_imports(tree)
+    if imports:
+        form = [Sym("progn"),
+                *[[Sym("py-import"), Sym(m)] for m in imports],
+                form]
+    return render(form)
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     out = None
+    if argv and argv[0] == "--expression":
+        try:
+            sys.stdout.write(translate_expression(" ".join(argv[1:])))
+        except (SyntaxError, Unsupported) as e:
+            sys.stderr.write(f"hyclb.frompy: {e}\n")
+            return 1
+        return 0
     if "-o" in argv:
         i = argv.index("-o")
         out = argv[i + 1]
         del argv[i:i + 2]
     if len(argv) != 1:
-        sys.stderr.write("usage: python -m hyclb.frompy FILE.py [-o OUT.lisp]\n")
+        sys.stderr.write("usage: python -m hyclb.frompy FILE.py [-o OUT.lisp]\n"
+                         "       python -m hyclb.frompy --expression 'EXPR'\n")
         return 2
     try:
         text, renamed = translate_file(argv[0])

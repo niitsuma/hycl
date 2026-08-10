@@ -55,7 +55,28 @@
   (:check (5.7596) -0.5)
   (:check (6.2832) 0.0))
 
+;; The three doors, one request: x*y plus the numeric value of pi.  The
+;; string is data and nothing checks it; the Lisp is compiled here by SBCL,
+;; which is why :FREE matters -- it is what lets the compiler call every
+;; other name undefined; the Python is parsed by CPython and translated by
+;; frompy, import and all.
+(defvar *what-it-does*
+  (ask-llm "In one short sentence, what does the expression x*y plus pi compute?"
+           :max-tokens 40))
+
+(defun lisp-arm (x y)
+  (ask-llm-form "x times y, plus the numeric value of pi" :free (x y)))
+
+(defun python-arm (x y)
+  (ask-llm-python "x*y plus the numeric value of pi"))
+
 (defun main ()
+  (print (list 'says *what-it-does*))
+  (print (list 'lisp-arm (lisp-arm 3.0 4.0)
+               'python-arm (python-arm 3.0 4.0)
+               'agree (if (< (abs (- (lisp-arm 3.0 4.0) (python-arm 3.0 4.0)))
+                             1e-12)
+                          'yes 'no)))
   (print (list 'clamped (clamp 99 0 7)))
   (print (list 'february 2100 'has (days-in-month 2 2100) 'days))
   ;; the recovered function against the sine the samples were taken from,

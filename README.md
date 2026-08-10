@@ -168,22 +168,47 @@ have judged the fit the same way.
   (:check (6.2832) 0.0))
 ```
 
-For a question that is not a function, `ask-llm` is the unchecked door, and
-narrow on purpose. It evaluates to the model's answer as a string constant:
+For a question that is not a function there are three doors, one per kind of
+answer, and each snippet is judged by the compiler of the language it is
+written in. One request asked three ways — *x·y plus the numeric value of
+pi* — shows what each is for:
 
 ```lisp
-(defvar *note* (ask-llm "Reply with the single word HELLO." :max-tokens 10))
-;; expands to  (defvar *note* "HELLO")
+(ask-llm        "In one sentence, what does x*y plus pi compute?")
+;; => "The product of x and y plus the mathematical constant pi."
+
+(ask-llm-form   "x times y, plus the numeric value of pi" :free (x y))
+;; => (+ (* x y) pi)                      SBCL compiles it, here, without running it
+
+(ask-llm-python "x*y plus the numeric value of pi")
+;; => (progn (py-import math) (+ (* x y) math.pi))    CPython parses it, frompy translates it
 ```
 
-Because the value is a string it can become documentation, a message, a
-generated comment — data that a wrong answer makes *wrong* rather than
-*broken*. Anything that becomes code should go through `defllm`, where the
-`:check` clauses decide. The question is asked in the expander, so what
-reaches the compiled program is the answer and the model is not there to be
-asked again; one question asked twice while a file compiles is answered once.
-`llm-ask` is the same thing as a function, callable from any macro you write
-yourself.
+`ask-llm` returns a **string**. Nothing can check it and nothing needs to: it
+can become documentation, a message, a generated comment — data that a wrong
+answer makes *wrong* rather than *broken*.
+
+`ask-llm-form` returns **Common Lisp code**, spliced in where the macro
+stood. `:free` names the variables the expression may use, and that is what
+makes the answer checkable at all: with it, SBCL compiles the form and calls
+every other name undefined. The form is compiled, never run, and the
+compiler's own complaint is what goes back to the model.
+
+`ask-llm-python` returns a **Python expression**, translated by `hyclb.frompy`
+into the same Lisp a `.py` file would have produced — so nothing downstream
+special-cases it. CPython's parser is the verdict on whether the reply is an
+expression at all, and a `SyntaxError` goes back to the model. Python cannot
+say whether the *names* exist, which is exactly how much looser this door is
+than `ask-llm-form`; the modules a dotted name reaches through are read off
+the expression and imported, since an expression has no room to say
+`import math` for itself.
+
+Anything whose *value* matters should still go through `defllm`, where the
+`:check` clauses decide — these three check that the answer is well formed,
+not that it is right. All three ask in the expander, so what reaches the
+compiled program is the answer and the model is not there to be asked again;
+one question asked twice while a file compiles is answered once. `llm-ask` is
+the plain function underneath, callable from any macro you write yourself.
 
 [`tests/llm.lisp`](tests/llm.lisp) is the checked version of all of this: the
 expansion-time checks prove the Lisp, and the suite then proves the
