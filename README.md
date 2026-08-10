@@ -160,6 +160,23 @@ have judged the fit the same way.
   (:check (6.2832) 0.0))
 ```
 
+For a question that is not a function, `ask-llm` is the unchecked door, and
+narrow on purpose. It evaluates to the model's answer as a string constant:
+
+```lisp
+(defvar *note* (ask-llm "Reply with the single word HELLO." :max-tokens 10))
+;; expands to  (defvar *note* "HELLO")
+```
+
+Because the value is a string it can become documentation, a message, a
+generated comment — data that a wrong answer makes *wrong* rather than
+*broken*. Anything that becomes code should go through `defllm`, where the
+`:check` clauses decide. The question is asked in the expander, so what
+reaches the compiled program is the answer and the model is not there to be
+asked again; one question asked twice while a file compiles is answered once.
+`llm-ask` is the same thing as a function, callable from any macro you write
+yourself.
+
 [`tests/llm.lisp`](tests/llm.lisp) is the checked version of all of this: the
 expansion-time checks prove the Lisp, and the suite then proves the
 translation — on inputs the model never saw. `examples/llm_macro.lisp` does

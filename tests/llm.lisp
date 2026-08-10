@@ -54,3 +54,24 @@
 
 (deftest circle-area-r10 t
   (if (< (abs (- (circle-area 10.0) 314.1592653589793)) 0.1) t nil))
+
+;;; ASK-LLM is the unchecked door, and narrow on purpose: the answer is a
+;;; string, so a wrong one makes the program wrong rather than broken.  It
+;;; is a constant by the time Python sees it -- the model is not there to be
+;;; asked again -- and two occurrences of one question give one answer.
+
+(defvar *capital*
+  (ask-llm "Which city is the capital of Japan?  Reply with the city name alone."
+           :max-tokens 20))
+
+(deftest ask-llm-answers t
+  (if (>= (py-method (string-upcase *capital*) "find" "TOKYO") 0) t nil))
+
+(deftest ask-llm-is-a-constant t (if (stringp *capital*) t nil))
+
+;; asked twice, answered once: the expander memoises, so these are the same
+;; string rather than two samples that might disagree
+(deftest ask-llm-memoised t
+  (if (string= (ask-llm "Name one primary colour.  One word.")
+               (ask-llm "Name one primary colour.  One word."))
+      t nil))

@@ -736,7 +736,34 @@ the source being compiled.  HYCLB_LLM overrides the default.")
     (unless (and p (eql 0 (sb-ext:process-exit-code p)))
       (error "~a did not answer; nothing that expands through the model ~
               can compile without it" *llm-program*))
-    (get-output-stream-string out)))
+    ;; the trailing newline is the CLI's, not part of the answer
+    (string-trim '(#\Space #\Tab #\Newline #\Return)
+                 (get-output-stream-string out))))
+
+(defvar *llm-memo* (make-hash-table :test 'equal)
+  "Answers already given.  One question asked twice while a file compiles
+should not come back two different ways.")
+
+(defmacro cl-user::ask-llm (question &key system (max-tokens 400))
+  "The model's answer to QUESTION, as a string constant.
+
+QUESTION is evaluated here in the expander, so a literal string is itself
+and (format nil ...) works too; what reaches the compiled program is the
+answer, and the model is not there to be asked again.
+
+This is the unchecked door, and it is deliberately narrow: the value is a
+string, so it can become documentation, a message, a comment -- data that a
+wrong answer makes wrong rather than broken.  Anything that becomes code
+should go through DEFLLM instead, where :CHECK clauses decide."
+  (let* ((prompt (eval question))
+         (key (list prompt system max-tokens)))
+    (unless (stringp prompt)
+      (error "ask-llm: the question must evaluate to a string, not ~s" prompt))
+    (multiple-value-bind (hit found) (gethash key *llm-memo*)
+      (if found
+          hit
+          (setf (gethash key *llm-memo*)
+                (llm-ask prompt :system system :max-tokens max-tokens))))))
 
 (defun llm-first-form (text)
   "The first complete s-expression in TEXT.  Whatever surrounds it -- prose,
