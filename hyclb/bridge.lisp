@@ -787,14 +787,81 @@ bare expression, but only reading can enforce it."
         ((and (stringp got) (stringp want)) (string= got want))
         (t (equalp got want))))
 
+(defun llm-caught-error (text)
+  "The message SBCL printed for a compile-time error, without its framing.
+A compile-time error never reaches a handler of ours -- the compiler's own
+handler transfers control first -- so what it printed is the only account of
+what was wrong."
+  (let ((out '()) (in nil))
+    (with-input-from-string (s text)
+      (loop for line = (read-line s nil)
+            while line
+            do (let ((stripped (string-trim '(#\Space #\Tab)
+                                            (string-left-trim '(#\;) line))))
+                 ;; CHAR-EQUAL because the header names a condition type and
+                 ;; so prints in whatever case the expander is printing in --
+                 ;; "caught error:" under the :invert readtable, not "ERROR"
+                 (cond ((search "caught error" line :test #'char-equal)
+                        (setf in t))
+                       ((and in (string= stripped "")) (setf in nil))
+                       (in (push stripped out))))))
+    (when out (format nil "~{~a~^ ~}" (nreverse out)))))
+
+(defun llm-compile (params body)
+  "Compile BODY as a function of PARAMS, without running it.
+Returns the function, or NIL and a complaint phrased for the model.
+
+This pass is worth having because it is the only one that judges the code
+without executing it.  SBCL's compiler sees undefined names, wrong argument
+counts, malformed binding forms, GO to a nonexistent tag and declared-type
+conflicts, all statically.  Hy cannot be asked the same question: Python
+resolves names when the code runs, so every one of those mistakes compiles
+clean there and shows up only as a traceback.
+
+Style warnings are ignored except the ones about undefined names -- an
+unused parameter is not a mistake, a function that does not exist is."
+  (let ((notes '()))
+    (flet ((note (c)
+             (pushnew (string-trim '(#\Space #\Newline #\Return)
+                                   (princ-to-string c))
+                      notes :test #'string=)))
+      (handler-case
+          ;; COMPILE does not resignal a compile-time error to its caller: it
+          ;; handles the condition itself and hands back a function that will
+          ;; fail when called.  So the error is noted by a handler that then
+          ;; declines, leaving the compiler to carry on as usual, and
+          ;; FAILURE-P is the backstop for anything that reaches neither
+          ;; handler.
+          (let* ((printed (make-string-output-stream))
+                 (*error-output* printed))
+            (multiple-value-bind (fn warnings-p failure-p)
+                (handler-bind
+                    ((error (lambda (c) (note c)))
+                     (warning
+                       (lambda (c)
+                         (when (or (not (typep c 'style-warning))
+                                   (search "undefined" (princ-to-string c)))
+                           (note c))
+                         (muffle-warning c))))
+                  (compile nil `(lambda ,params
+                                  (declare (ignorable ,@params))
+                                  ,body)))
+              (declare (ignore warnings-p))
+              (cond (notes (values nil (format nil "does not compile: ~{~a~^; ~}"
+                                               (nreverse notes))))
+                    (failure-p
+                     (values nil
+                             (format nil "does not compile~@[: ~a~]"
+                                     (llm-caught-error
+                                      (get-output-stream-string printed)))))
+                    (t (values fn nil)))))
+        (error (e) (values nil (format nil "does not compile: ~a" e)))))))
+
 (defun llm-run-checks (params body checks tolerance)
-  "NIL if BODY passes every check, else one sentence saying how it failed,
-phrased for the model to read."
-  (let ((fn (handler-case
-                (handler-bind ((warning #'muffle-warning))
-                  (eval `(lambda ,params ,body)))
-              (error (e) (return-from llm-run-checks
-                           (format nil "did not compile: ~a" e))))))
+  "NIL if BODY compiles and passes every check, else one sentence saying how
+it failed, phrased for the model to read."
+  (multiple-value-bind (fn complaint) (llm-compile params body)
+    (when complaint (return-from llm-run-checks complaint))
     (dolist (c checks nil)
       (destructuring-bind (args want) c
         (let ((got (handler-case (apply fn args)

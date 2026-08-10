@@ -118,6 +118,14 @@ error, the same treatment `defsum` gives a sum that does not telescope.
   (:check (42 0 10) 10))
 ```
 
+An answer is judged twice, and the first pass never runs it: SBCL compiles
+the expression and reports undefined names, wrong argument counts, malformed
+binding forms, `go` to a nonexistent tag and declared-type conflicts, all
+statically. Only what compiles is then run against the checks. Hy cannot be
+asked the same question — Python resolves names when the code runs, so every
+one of those mistakes compiles clean there and surfaces as a traceback — and
+that asymmetry is the reason the expander is the right place for this.
+
 What survives is an ordinary `defun` — this one comes back as
 `(max lo (min x hi))` — translated like anything else. The compiled program
 depends on the model exactly as much as it depends on Maxima, which is not at
