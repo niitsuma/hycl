@@ -210,11 +210,31 @@ compiled program is the answer and the model is not there to be asked again;
 one question asked twice while a file compiles is answered once. `llm-ask` is
 the plain function underneath, callable from any macro you write yourself.
 
-[`tests/llm.lisp`](tests/llm.lisp) is the checked version of all of this: the
+All five are in the one example, which runs like the others:
+
+```console
+$ python -c "from hyclb.api import cl_load, new_module; \
+    m = new_module('llm'); cl_load('examples/llm_macro.lisp', m); m.main()"
+(says "The expression computes the sum of the product of x and y and the mathematical constant pi.")
+(lisp-arm 15.141592653589793 python-arm 15.141592653589793 agree yes)
+(clamped 7)
+(february 2100 has 28 days)
+(recovered-f max-error-vs-sin 0.0)
+(agrees-with-python-calendar T)
+```
+
+Line by line: the string door answered in prose, and its wording is the one
+thing here that changes from run to run. The Lisp and Python doors were
+handed the same request and agree to the last digit, having arrived at `pi`
+and `math.pi` respectively. `clamp` and `days-in-month` are `defllm`
+functions, and the last two lines are the parts that check the model's work
+on inputs it never saw — the recovered sine against the sine the samples came
+from, and `days-in-month` against Python's own `calendar` module for sixty
+month/year pairs.
+
+[`tests/llm.lisp`](tests/llm.lisp) is the checked version of all of it: the
 expansion-time checks prove the Lisp, and the suite then proves the
-translation — on inputs the model never saw. `examples/llm_macro.lisp` does
-the same for `days-in-month`, written by the model from one English
-sentence, against Python's own `calendar` module for sixty month/year pairs.
+translation.
 
 ### Bring existing Python into the Lisp
 
@@ -297,7 +317,7 @@ print(module.square(7))
 | `lagrangian.lisp` | equations of motion derived from a Lagrangian, then simulated |
 | `sequences.lisp` | a recurrence solved symbolically, streamed lazily, compiled to machine code |
 | `defsum.lisp` | summed-area tables derived from the sum itself, and `lift-sums`, which recognises the naive nest and rewrites it back into one: the box-sum recurrence is obtained by telescoping in Maxima, refused when it does not hold, and the generated code is checked against the naive sum before it is accepted |
-| `llm.lisp` | a function body written by a local LLM at macroexpansion time, admitted only after passing its `:check` clauses in SBCL |
+| `llm.lisp` | the four LLM macros: `defllm`, whose body must pass its `:check` clauses in SBCL before it is admitted, and `ask-llm` / `ask-llm-form` / `ask-llm-python`, checked by nobody, by SBCL, and by CPython respectively |
 | `tailcall.lisp` | self-tail recursion compiled to a loop; mutual recursion left alone |
 | `lasso.lisp` | LASSO by coordinate descent, compiled three ways; `benchmarks/lasso.py` times them against NumPy, scikit-learn and cuML |
 | `sweep.lisp` | a hyperparameter grid built at compile time, driving PyTorch Lightning |
