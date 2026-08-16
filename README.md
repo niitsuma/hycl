@@ -432,6 +432,27 @@ by importing, so fix the package or uninstall it.
 bytecode. The cache key includes a hash of hyclb's own sources, so this should
 not happen; if it does, remove the `__pycache__` beside your `.lisp` file.
 
+**`TypeError: expected string or bytes-like object, got 'NoneType'`** while pip
+is generating metadata, raised inside `setuptools/installer.py` — a
+Debian/Ubuntu collision that has nothing to do with hyclb, and whose message
+names neither hyclb nor the real cause. `python3-charset-normalizer` ships a
+`.dist-info` directory containing only an `INSTALLER` file; with no `METADATA`
+in it, `importlib.metadata` reports that distribution's name as `None`, and
+setuptools canonicalises the name of every installed distribution without
+guarding for it. It is reachable only through the legacy `setup_requires` path,
+which pip avoids by building in isolation — the venv install above is
+unaffected, and installs into the system Python (`--user`,
+`--break-system-packages`) are the ones that can meet it. Any one of these
+clears it:
+
+```console
+$ python -m venv .venv && . .venv/bin/activate    # the venv is not affected
+$ pip install wheel funcparserlib                 # found first, so the scan stops early
+$ sudo mv /usr/lib/python3.12/dist-packages/charset_normalizer-*.dist-info{,.disabled}
+```
+
+The last one is undone by the next update of that apt package.
+
 ## Why
 
 Python has the libraries; Common Lisp has the macros. Existing bridges make you
