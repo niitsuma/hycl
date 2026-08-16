@@ -11,7 +11,11 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python: ["3.10", "3.12"]
+        # The ends of the supported range and the newest release.  3.13 earns
+        # its place: its standard library uses constructs earlier ones did not
+        # -- `statistics` selects a kernel with `match` -- so frompy running
+        # against it is a different test, not the same one on a newer runtime.
+        python: ["3.10", "3.12", "3.13"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
