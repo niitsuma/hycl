@@ -1,0 +1,21 @@
+# The sdist ships the test suites, because each suite doubles as documentation
+# and the .lisp files are the readable half of it. setuptools would otherwise
+# pick up only tests/test_*.py and drop all 22 .lisp suites without saying so.
+recursive-include tests *.lisp *.py
+
+# Two groups are deliberately left out: they need a dependency that is neither
+# pip-installable nor present on a normal machine, so shipping them would only
+# produce suites that can never run for the recipient.
+#
+#   Maxima     -- an external CAS invoked as a separate process
+#   ask-local  -- the local language-model CLI; test_suites.py notes that a
+#                 dead server fails rather than skips, so it is worse than
+#                 useless off this machine
+#
+# Keep in step with the NEEDS table in tests/test_suites.py.
+exclude tests/maxima.lisp
+exclude tests/maxima-apps.lisp
+exclude tests/lagrangian.lisp
+exclude tests/sequences.lisp
+exclude tests/defsum.lisp
+exclude tests/llm.lisp
