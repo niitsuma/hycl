@@ -159,8 +159,13 @@ the same to ten standard-library modules against CPython. Both are the right
 model for new work: check against an independent implementation rather than
 against an expectation.
 
-Expected results: bare install (Hy and SBCL only) 46 pass / 5 skip; with numpy
-and numba 49 / 2; with torch and lightning all 51.
+Expected results, of 53 items: bare install (Hy and SBCL only) 41 pass /
+12 skip; with everything installed, 52 pass. Two caveats worth knowing before
+you chase a red run. `libraries.lisp` skips wherever `let-over-lambda` will
+not build — SBCL 2.5.11 with the current dist is such a place, and plain SBCL
+fails the same way. `llm.lisp` calls a live model, so its result is sampled,
+not determined: it can fail on an unlucky answer and its running time varies
+with how many retries the model costs. Re-run it before believing a failure.
 
 ## Conventions
 

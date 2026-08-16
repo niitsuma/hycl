@@ -576,6 +576,23 @@ _fast = False
 _approx = False
 
 
+def vocabulary():
+    """The Common Lisp names this side implements.
+
+    SBCL knows the whole standard, hyclb knows a part of it, and the gap is
+    invisible until a translated program dies on a name Python never had.
+    The expander is told the list so that code *it* writes -- a DEFLLM body,
+    which nobody proofread -- can be held to it.  Source the programmer wrote
+    is not checked against this: reaching for something unimplemented is a
+    reasonable thing to do while adding it.
+    """
+    names = set()
+    for table in (SPECIAL, RUNTIME, FAST_SPECIAL, FAST_RUNTIME,
+                  FAST_APPROX_SPECIAL, LOOP_SPECIAL):
+        names |= set(table)
+    return sorted(names)
+
+
 def _spec_declaration(body):
     """Read (declare (spec :args p... :ret p :fn p :test n)) from a body."""
     for form in body:

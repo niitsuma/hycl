@@ -162,6 +162,43 @@ CASES = {
         except ValueError as e:
             print("caught", e)
     """,
+    "match": """
+        def kind(x):
+            match x:
+                case 0:
+                    return "zero"
+                case 1 | 2 | 3:
+                    return "small"
+                case None:
+                    return "none"
+                case n if n < 0:
+                    return "negative " + str(n)
+                case other:
+                    return "big " + str(other)
+
+        for v in [0, 1, 3, 4, None, -7, 100]:
+            print(v, kind(v))
+
+        # a subject that matches nothing falls through, changing nothing
+        def silent(x):
+            seen = "before"
+            match x:
+                case 99:
+                    seen = "ninety-nine"
+            return seen
+
+        print(silent(99), silent(1))
+
+        # the capture happens before the guard, and survives it failing
+        def leaks(x):
+            n = "unset"
+            match x:
+                case n if n > 10:
+                    return "big", n
+            return "small", n
+
+        print(leaks(50), leaks(2))
+    """,
     "generators": """
         def upto(n):
             i = 0
@@ -246,6 +283,10 @@ def test_round_trip(name):
 
 
 def test_unsupported_is_reported():
-    """A construct with no faithful translation must raise, not guess."""
+    """A construct with no faithful translation must raise, not guess.
+
+    A sequence pattern is the boundary inside MATCH: the patterns that only
+    test are translated, the ones that also destructure are not.
+    """
     with pytest.raises(Unsupported):
-        translate_source("match x:\n    case 1: pass\n")
+        translate_source("match x:\n    case [a, b]: print(a, b)\n")

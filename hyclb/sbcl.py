@@ -20,6 +20,10 @@ class LispError(RuntimeError):
     pass
 
 
+def _escape(text):
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 class Sbcl:
     def __init__(self, command=("sbcl", "--script"), bridge=_BRIDGE):
         # The expander sometimes has to ask what Python makes of a piece of
@@ -74,6 +78,16 @@ class Sbcl:
     def set_stop(self, names):
         """Set the expansion frontier: operators we translate ourselves."""
         self._request(":set-stop (" + " ".join(names) + ")")
+
+    def set_vocabulary(self, names):
+        """Tell the expander which Common Lisp functions this side implements.
+
+        SBCL knows the whole standard; hyclb implements a part of it, and the
+        difference is invisible until a translated program dies on a name
+        Python never had.  Only code the expander *writes* is checked against
+        this -- what the programmer writes is their own affair.
+        """
+        self._request(":set-vocabulary (" + " ".join(_escape(n) for n in names) + ")")
 
     def expand(self, source):
         """Read one form from SOURCE and macroexpand it completely."""

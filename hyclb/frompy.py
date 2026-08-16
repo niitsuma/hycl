@@ -223,6 +223,10 @@ def _scope_names(stmts, owner=None):
                 out.add(child.asname or child.name.split(".")[0])
             elif isinstance(child, ast.ExceptHandler) and child.name:
                 out.add(child.name)
+            elif isinstance(child, (ast.MatchAs, ast.MatchStar)) and child.name:
+                out.add(child.name)          # a capture pattern binds a name
+            elif isinstance(child, ast.MatchMapping) and child.rest:
+                out.add(child.rest)
             elif isinstance(child, (ast.Global, ast.Nonlocal)):
                 out.update(child.names)
             walk(child, False)
@@ -253,6 +257,11 @@ _PY_CMP = {
     ast.Is: "is", ast.IsNot: "is not",
 }
 _AUG = {**{k: v for k, v in _LISP_BINOP.items()}, **_PY_BINOP}
+
+# The test of a MATCH case that matches whatever the subject is.  A distinct
+# object rather than the string, so `is` can tell it from a test that happens
+# to be spelled the same.
+_ALWAYS = Sym("t")
 
 
 class Translator(ast.NodeVisitor):
@@ -650,6 +659,65 @@ class Translator(ast.NodeVisitor):
             return [Sym("if"), self.cond(node.test),
                     self.seq(node.body), self.seq(node.orelse)]
         return [Sym("when"), self.cond(node.test), *self.body(node.body)]
+
+    def s_Match(self, node):
+        """A match statement as a chain of tests over one bound subject.
+
+        Only the patterns that are *tests* are translated: a literal, a
+        singleton, an alternation of those, the wildcard, and a capture.
+        Sequence, mapping and class patterns destructure as well as test,
+        which is a different job, and they are refused rather than
+        approximated.
+
+        Falling off the end of a MATCH does nothing, and so does a COND with
+        no clause true, which is why nothing has to be added for the case
+        where the subject matches nothing.
+        """
+        subject = Sym("%subject")
+        clauses = []
+        for case in node.cases:
+            test, binds = self._pattern(case.pattern, subject)
+            assigns = [[Sym("setq"), n, v] for n, v in binds]
+            if case.guard is not None:
+                # a capture is in scope for its own guard, so the binding has
+                # to happen inside the test, before the guard runs -- and it
+                # stays bound when the guard then fails, which is what CPython
+                # does too
+                guard = self.cond(case.guard)
+                if assigns:
+                    guard = [Sym("progn"), *assigns, guard]
+                    assigns = []
+                test = guard if test is _ALWAYS else [Sym("py-and"), test, guard]
+            clauses.append([test, *assigns, *self.body(case.body)])
+        return [Sym("let"), [[subject, self.expr(node.subject)]],
+                [Sym("cond"), *clauses]]
+
+    def _pattern(self, pat, subject):
+        """One case pattern, as a test and the names it binds."""
+        if isinstance(pat, ast.MatchValue):
+            return [Sym("py-binop"), "==", subject, self.expr(pat.value)], []
+        if isinstance(pat, ast.MatchSingleton):
+            return [Sym("py-binop"), "is", subject, pat.value], []
+        if isinstance(pat, ast.MatchAs):
+            if pat.pattern is None:
+                # `case _` and `case name` both match anything
+                return _ALWAYS, ([(self.name(pat.name), subject)]
+                                 if pat.name else [])
+            test, binds = self._pattern(pat.pattern, subject)
+            return test, binds + [(self.name(pat.name), subject)]
+        if isinstance(pat, ast.MatchOr):
+            tests = []
+            for alt in pat.patterns:
+                test, binds = self._pattern(alt, subject)
+                if binds or test is _ALWAYS:
+                    # Python requires every alternative to bind the same
+                    # names.  Refusing the ones that bind at all is stricter
+                    # than the rule and saves having to enforce it.
+                    raise Unsupported("an alternative pattern that binds")
+                tests.append(test)
+            return [Sym("py-or"), *tests], []
+        raise Unsupported(f"pattern {type(pat).__name__} at line "
+                          f"{getattr(pat, 'lineno', '?')}")
 
     def s_While(self, node):
         flag = self._loop_flag(node)

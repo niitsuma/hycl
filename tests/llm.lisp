@@ -1,5 +1,11 @@
 ;;;; A language model in Maxima's seat.
 ;;;;
+;;;; The one suite here whose result is sampled rather than determined.  Every
+;;;; macro below asks a live model, and while a wrong answer is caught and
+;;;; sent back, three wrong answers in a row are a compile-time error.  So a
+;;;; failure here is worth re-running before it is worth investigating, and
+;;;; the running time varies with how many retries the model costs.
+;;;;
 ;;;; DEFLLM asked the local model for each body while this file compiled, and
 ;;;; admitted the answer only after it passed its :CHECK clauses in SBCL.
 ;;;; What runs here is the translated Python, so these tests are the second

@@ -35,6 +35,11 @@ what makes the name Python sees independent of the reader's case mode.")
 (defvar *stop* '()
   "Operators at which macroexpansion halts -- the expansion frontier.")
 
+(defvar *vocabulary* (make-hash-table :test 'equal)
+  "Common Lisp function names the Python side implements, upcased.
+Empty until the back end says otherwise, and an empty table means no
+checking -- the bridge has to keep working when it is driven by hand.")
+
 (defvar *sentinel* "#<<HYCLB-END>>")
 
 ;;; ---------------------------------------------------------------- expansion
@@ -372,6 +377,13 @@ call we also generate."
            ;; CL-USER inherits the standard operators and can hold ours
            (setf *stop* (mapcar (lambda (n) (intern (string n) :common-lisp-user))
                                 names))
+           (emit t)))
+        (:set-vocabulary
+         ;; sent as strings: the names include +, /, 1+ and friends, and a
+         ;; string needs no agreement about readtable case to survive
+         (let ((names (read)))
+           (clrhash *vocabulary*)
+           (dolist (n names) (setf (gethash (string-upcase n) *vocabulary*) t))
            (emit t)))
         (:expand
          (let ((form (let ((*readtable* *user-readtable*)
@@ -863,11 +875,47 @@ unused parameter is not a mistake, a function that does not exist is."
                     (t (values fn nil)))))
         (error (e) (values nil (format nil "does not compile: ~a" e)))))))
 
+(defun llm-untranslatable (body)
+  "The functions BODY calls that hyclb has not implemented, as a complaint.
+
+SBCL compiling the form only settles that it is Common Lisp.  hyclb
+implements a few hundred of the standard's functions, and a model reaching
+for one of the others -- COERCE, say -- produces something that compiles
+here and dies in Python with a NameError.
+
+The body is expanded first, so a function a macro introduced is seen too.
+Only symbols in the COMMON-LISP package are considered, and only those
+naming functions: macros expand away before translation, special operators
+are handled by the back end, and package locks mean a CL symbol cannot have
+been rebound as something else's name."
+  (when (zerop (hash-table-count *vocabulary*))
+    (return-from llm-untranslatable nil))
+  (let ((missing '())
+        (cl (find-package :common-lisp)))
+    (labels ((walk (x)
+               (cond
+                 ((and (consp x) (eq (car x) 'quote)))    ; data, not calls
+                 ((consp x) (walk (car x)) (walk (cdr x)))
+                 ((and (symbolp x) x (eq (symbol-package x) cl)
+                       (fboundp x)
+                       (not (macro-function x))
+                       (not (special-operator-p x))
+                       (not (gethash (symbol-name x) *vocabulary*)))
+                  (pushnew (string-downcase (symbol-name x)) missing
+                           :test #'string=)))))
+      (walk (ignore-errors (expand-all body))))
+    (when missing
+      (format nil "calls ~{~a~^ and ~}, which this Common Lisp has but hyclb ~
+                   does not implement; use something else"
+              (nreverse missing)))))
+
 (defun llm-run-checks (params body checks tolerance)
   "NIL if BODY compiles and passes every check, else one sentence saying how
 it failed, phrased for the model to read."
   (multiple-value-bind (fn complaint) (llm-compile params body)
     (when complaint (return-from llm-run-checks complaint))
+    (let ((untranslatable (llm-untranslatable body)))
+      (when untranslatable (return-from llm-run-checks untranslatable)))
     (dolist (c checks nil)
       (destructuring-bind (args want) c
         (let ((got (handler-case (apply fn args)
@@ -887,6 +935,21 @@ it failed, phrased for the model to read."
   "You write Common Lisp.  Reply with exactly one Common Lisp expression and
 nothing else: no markdown, no comments, no DEFUN wrapper.  Use only standard
 Common Lisp operators and functions.")
+
+(defun llm-lisp-system ()
+  "The Lisp system prompt, with the available vocabulary named if we know it.
+
+LLM-UNTRANSLATABLE will catch a function hyclb has not implemented, but
+catching it costs a whole round trip, and the model has no way to guess where
+the line falls.  Telling it is cheaper than correcting it."
+  (if (zerop (hash-table-count *vocabulary*))
+      *llm-lisp-system*
+      (let ((names '()))
+        (maphash (lambda (k v) (declare (ignore v)) (push (string-downcase k) names))
+                 *vocabulary*)
+        (format nil "~a  Only these functions and operators exist; anything ~
+else, however standard, is unavailable: ~{~a~^ ~}."
+                *llm-lisp-system* (sort names #'string<)))))
 
 (defvar *llm-python-system*
   "You write Python.  Reply with exactly one Python expression and nothing
@@ -937,7 +1000,7 @@ parameters ~a.  It computes: ~a.~{  With ~a the value must be ~s.~}~
                              (second c)))
                      checks)
              tolerance)
-     *llm-lisp-system*
+     (llm-lisp-system)
      400
      (lambda (reply)
        (let ((body (llm-first-form reply)))
@@ -1026,7 +1089,7 @@ and if the answer matters this is the wrong macro."
                    "ask-llm-form"
                    (format nil "~a~@[  The expression may use these ~
 variables and nothing else: ~{~a~^, ~}.~]" prompt free)
-                   (or system *llm-lisp-system*)
+                   (or system (llm-lisp-system))
                    max-tokens
                    (lambda (reply)
                      (let ((form (llm-first-form reply)))
@@ -1035,9 +1098,14 @@ variables and nothing else: ~{~a~^, ~}.~]" prompt free)
                            (multiple-value-bind (fn complaint)
                                (llm-compile free form)
                              (declare (ignore fn))
-                             (if complaint
-                                 (values nil complaint)
-                                 (values form nil)))))))))))))
+                             ;; compiling settles that it is Common Lisp;
+                             ;; this settles that it is Common Lisp hyclb
+                             ;; can translate, which is a smaller language
+                             (let ((untranslatable (llm-untranslatable form)))
+                               (cond (complaint (values nil complaint))
+                                     (untranslatable
+                                      (values nil untranslatable))
+                                     (t (values form nil)))))))))))))))
 
 (defmacro cl-user::ask-llm-python (question &key system (max-tokens 400))
   "The model's answer as a Python expression, translated and spliced in.

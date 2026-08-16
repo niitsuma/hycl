@@ -67,6 +67,7 @@ def _lisp():
     lisp = sbcl.shared()
     if not getattr(lisp, "_stop_set", False):
         lisp.set_stop(STOP)
+        lisp.set_vocabulary(translate.vocabulary())
         lisp._stop_set = True
     return lisp
 

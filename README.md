@@ -275,7 +275,7 @@ which is the point.
 | `colorsys` | 166 | RGB↔HLS, ↔YIQ, ↔HSV round trips |
 | `bisect` | 118 | `bisect_left`/`right`, `insort`, ties |
 | `heapq` | 603 | push/pop, `heapify`, `nsmallest`, `merge` |
-| `statistics` | 1,454 | mean, median, stdev, variance, mode, quantiles |
+| `statistics` | 1,454 | mean, median, stdev, variance, mode, quantiles; on 3.13 it needs `match` |
 | `textwrap` | 491 | `wrap`, `fill`, `shorten`, `indent`, `dedent` |
 | `queue` | 326 | FIFO, LIFO and priority queues |
 | `copy` | 292 | shallow against deep, and identity after |
@@ -415,9 +415,17 @@ $ cd hycl && python -m pytest tests
 ```
 
 Suites needing something absent skip with a stated reason rather than failing.
-Measured on this checkout: a bare install (Hy and SBCL only) passes 46 and
-skips 5; with `[fast]` — numpy and numba — it passes 49 and skips 2; with
-torch and lightning as well, all 51 pass.
+There are 53 items. A bare install — Hy and SBCL, nothing else — passes 41 and
+skips 12: five suites want Maxima, four want numpy or torch, two want
+Quicklisp, and one wants the language-model CLI. Installing those turns skips
+into passes one group at a time; with everything present, 52 pass.
+
+The one that does not become a pass on this machine is `libraries.lisp`:
+`let-over-lambda` does not build under SBCL 2.5.11 with the current Quicklisp
+dist, which plain SBCL confirms, so the suite skips rather than blaming hyclb
+for it. And `llm.lisp` asks a live language model, so it is the one suite
+whose result is sampled rather than determined — an unlucky answer can fail
+it. That is why it is not in the sdist.
 
 ### Common problems
 
