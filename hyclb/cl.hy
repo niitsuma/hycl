@@ -211,16 +211,39 @@
 
 ;; ---------------------------------------------------------------- values
 
+;; A form's values beyond the first are left with the runtime by whatever
+;; produced them (VALUES, FLOOR, GETHASH ..) together with the first value,
+;; and belong to this form only if the value it gave is that very object:
+;; a function that computed something else afterwards returned one value.
 (defmacro cl-multiple-value-bind [names expr #* body]
   (setv extra (hy.gensym "extra"))
+  (when (not names)
+    (return `(do ~expr ~@body)))
   `(let [~(get names 0) ~expr
-         ~extra (cl-extra-values)
+         ~extra (cl-extra-values ~(get names 0))
          ~@(interleave
              (lfor [i n] (enumerate (cut names 1 None))
                    #(n `(if (> (len ~extra) ~(hym.Integer i))
                             (get ~extra ~(hym.Integer i))
                             NIL))))]
      ~@body))
+
+(defmacro cl-multiple-value-list [form]
+  `(cl-all-values-list ~form))
+
+(defmacro cl-nth-value [n form]
+  `(cl-nth-of-values ~n ~form))
+
+;; every value of every form, as the arguments of F
+(defmacro cl-multiple-value-call [f #* forms]
+  `(~f ~@(lfor form forms `(unpack-iterable (cl-all-values ~form)))))
+
+;; the values of the first form, after the others have run
+(defmacro cl-multiple-value-prog1 [form #* body]
+  (setv all (hy.gensym "all"))
+  `(let [~all (cl-all-values ~form)]
+     ~@body
+     (cl-values (unpack-iterable ~all))))
 
 ;; ---------------------------------------------------------------- places
 ;;

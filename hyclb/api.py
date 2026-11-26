@@ -26,6 +26,9 @@ STOP = [
     "go",
     "unwind-protect",
     "multiple-value-bind",
+    # SBCL writes these in terms of MULTIPLE-VALUE-CALL and its own internals
+    "multiple-value-list",
+    "nth-value",
     # these expand into implementation-internal arithmetic, so we stop short
     # of them and translate them ourselves
     "incf",

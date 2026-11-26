@@ -275,18 +275,52 @@ def cl_apply(f, *args):
     return f(*(list(args[:-1]) + spread))
 
 
+# Multiple values.  Python returns one object, so the values after the first
+# are left here by whatever produced them, with the first value beside them.
+# A consumer (MULTIPLE-VALUE-BIND, -LIST, -CALL, NTH-VALUE) takes them only
+# if the value it was handed is that very object: a function that went on to
+# compute something else returned one value, and what an earlier VALUES left
+# behind is not its.  (Where a function returns, alone, the first value of a
+# form it evaluated earlier -- (let ((q (floor n 2))) q) -- the rest still
+# come along; Lisp would give one value there.)
+_extra_values = ()
+_values_primary = None
+
+
 def cl_values(*vs):
-    """Primary value is returned; the rest are stashed for MULTIPLE-VALUE-BIND."""
-    global _extra_values
-    _extra_values = list(vs[1:])
-    return vs[0] if vs else NIL
+    """The first value is returned; the rest wait for a consumer."""
+    global _extra_values, _values_primary
+    _values_primary = vs[0] if vs else NIL
+    _extra_values = vs[1:]
+    return _values_primary
 
 
-_extra_values = []
+def cl_extra_values(primary):
+    """The values after PRIMARY, when PRIMARY is what the last multiple-valued
+    form returned; consumed by being read."""
+    global _extra_values, _values_primary
+    if primary is _values_primary and _extra_values:
+        extra = _extra_values
+        _extra_values, _values_primary = (), None
+        return extra
+    return ()
 
 
-def cl_extra_values():
-    return _extra_values
+def cl_all_values(primary):
+    return (primary,) + tuple(cl_extra_values(primary))
+
+
+def cl_all_values_list(primary):
+    return from_iterable(cl_all_values(primary))
+
+
+def cl_nth_of_values(n, primary):
+    values = cl_all_values(primary)
+    return values[n] if n < len(values) else NIL
+
+
+def cl_values_list(l):
+    return cl_values(*to_list(l))
 
 
 def cl_print(x):
@@ -933,24 +967,47 @@ def cl_sqrt(x):
     return x ** 0.5
 
 
-def cl_floor(x, d=1):
+def _divide(x, d, how):
+    """Quotient and remainder as FLOOR, CEILING, TRUNCATE and ROUND give them:
+    exact for integers and ratios, however large."""
     import math
+    import numbers
 
-    return math.floor(x / d)
+    if isinstance(x, numbers.Rational) and isinstance(d, numbers.Rational):
+        q = x // d                              # towards minus infinity
+        r = x - q * d
+        if r:
+            if how == "ceiling":
+                q += 1
+            elif how == "truncate":
+                if (x < 0) != (d < 0):
+                    q += 1
+            elif how == "round":                # to nearest, a tie to even
+                twice = abs(2 * r)
+                if twice > abs(d) or (twice == abs(d) and q % 2):
+                    q += 1
+        q = int(q)
+    else:
+        ratio = x / d
+        q = {"floor": math.floor, "ceiling": math.ceil,
+             "truncate": int, "round": round}[how](ratio)
+    return cl_values(q, x - q * d)
+
+
+def cl_floor(x, d=1):
+    return _divide(x, d, "floor")
 
 
 def cl_ceiling(x, d=1):
-    import math
-
-    return math.ceil(x / d)
+    return _divide(x, d, "ceiling")
 
 
 def cl_truncate(x, d=1):
-    return int(x / d)
+    return _divide(x, d, "truncate")
 
 
 def cl_round(x, d=1):
-    return round(x / d)
+    return _divide(x, d, "round")
 
 
 def cl_char_eq(a, b):
@@ -1103,8 +1160,11 @@ def cl_make_hash_table(**kw):
 
 
 def cl_gethash(key, table, default=NIL):
+    """The value and, as a second value, whether the key was there."""
     got = table.get(_hashable(key), _MISSING)
-    return default if got is _MISSING else got
+    if got is _MISSING:
+        return cl_values(default, NIL)
+    return cl_values(got, T)
 
 
 _MISSING = object()

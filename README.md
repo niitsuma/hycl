@@ -415,10 +415,10 @@ $ cd hycl && python -m pytest tests
 ```
 
 Suites needing something absent skip with a stated reason rather than failing.
-There are 55 items. A bare install — Hy and SBCL, nothing else — passes 43 and
+There are 56 items. A bare install — Hy and SBCL, nothing else — passes 44 and
 skips 12: five suites want Maxima, four want numpy or torch, two want
 Quicklisp, and one wants the language-model CLI. Installing those turns skips
-into passes one group at a time; with everything present, 54 pass.
+into passes one group at a time; with everything present, 55 pass.
 
 The one that does not become a pass on this machine is `libraries.lisp`:
 `let-over-lambda` does not build under SBCL 2.5.11 with the current Quicklisp
