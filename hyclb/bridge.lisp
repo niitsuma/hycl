@@ -208,7 +208,7 @@ place's subforms are evaluated once and before DELTA, as the standard says."
 
 (defvar *expander-forms*
   '("DEFMACRO" "DEFMACRO!" "DEFMACRO/G!" "DEFINE-COMPILER-MACRO"
-    "DEFPACKAGE" "IN-PACKAGE" "DEFINE-SYMBOL-MACRO"
+    "DEFPACKAGE" "IN-PACKAGE" "DEFINE-SYMBOL-MACRO" "DEFINE-MODIFY-MACRO" "DEFTYPE"
     "DEFSETF" "DEFINE-SETF-EXPANDER" "DEFCONSTANT" "DEFINE-COMPILER-MACRO"
     "QUICKLOAD" "REQUIRE" "USE-PACKAGE" "LOAD-SYSTEM")
   "Forms that configure the expander rather than describe the program.

@@ -508,7 +508,12 @@ def cl_numeq(x, y, *rest):
 
 
 def cl_numne(*a):
-    return boolify(len(set(a)) == len(a))
+    """No two of the numbers are equal.  Compared pair by pair, as numbers:
+    a NaN differs from everything, itself included, so (/= x x) is the test
+    for one -- a set would find the same object twice and call it equal."""
+    if len(a) == 2:
+        return T if a[0] != a[1] else NIL
+    return boolify(all(a[i] != a[j] for i in range(len(a)) for j in range(i + 1, len(a))))
 
 
 def cl_lt(x, y, *rest):
@@ -1014,6 +1019,10 @@ def cl_char_eq(a, b):
     return boolify(a == b)
 
 
+def cl_char_equal(a, b):
+    return boolify(str(a).lower() == str(b).lower())
+
+
 def cl_symbol_name(s):
     return s.name
 
@@ -1040,6 +1049,51 @@ def _reseq(items, model):
 
 def cl_subseq(s, start, end=None):
     return _reseq(_seq(s)[start:end], s)
+
+
+@cl_keywords
+def cl_search(sub, seq, test=None, key=None, start2=0, end2=None, from_end=NIL):
+    """Where SUB first (or, with :FROM-END, last) occurs in SEQ, or NIL."""
+    same = _same(test, key)
+    needle, hay = _seq(sub), _seq(seq)
+    end = len(hay) if end2 is None or end2 is NIL else end2
+    starts = range(start2, end - len(needle) + 1)
+    for i in (reversed(starts) if truthy(from_end) else starts):
+        if all(same(a, hay[i + j]) for j, a in enumerate(needle)):
+            return i
+    return NIL
+
+
+def cl_coerce(x, kind):
+    """X as the type KIND names: a number of another kind, a sequence of
+    another kind, a character."""
+    spec = to_list(kind) if isinstance(kind, Cons) else [kind]
+    name = str(getattr(spec[0], "name", spec[0])).lower()
+    if name in ("double-float", "single-float", "float", "long-float", "short-float", "real"):
+        return float(x)
+    if name in ("integer", "fixnum"):
+        if x != int(x):
+            raise TypeError(f"{x!r} cannot be coerced to {name}")
+        return int(x)
+    if name == "rational":
+        return Fraction(x)
+    if name in ("number", "t"):
+        return x
+    if name == "character":
+        return x.name if isinstance(x, Symbol) else str(x)
+    if name == "list":
+        return x if (x is NIL or isinstance(x, Cons)) else from_iterable(_seq(x))
+    if name in ("string", "simple-string"):
+        return x if isinstance(x, str) else "".join(str(c) for c in _seq(x))
+    if name in ("vector", "simple-vector", "array", "simple-array"):
+        element = spec[1] if len(spec) > 1 else None
+        if element is not None and str(getattr(element, "name", element)) not in ("t", "T", "*"):
+            return cl_make_array(len(_seq(x)), Keyword("element-type"), element,
+                                 Keyword("initial-contents"), x)
+        return list(_seq(x))
+    if name == "function":
+        return x
+    raise TypeError(f"COERCE to {name} is not supported")
 
 
 def cl_concatenate(kind, *seqs):

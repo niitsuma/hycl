@@ -551,8 +551,12 @@ signalling one.  Section `Limitations` of the paper says so.
 ;; turns the result into machine code.  This is Common Lisp's own safety
 ;; declaration deciding which of two compilations to use.
 
+;; UNLESS and a WHEN with no value leave a bare NIL in one arm.  NIL is an
+;; object of the runtime, which Numba cannot type; where the arm is only
+;; there to do nothing, None says the same.
 (defmacro cl-if-fast [test then #* else]
-  `(if ~test ~then ~(if else (get else 0) 'None)))
+  (defn arm [x] (if (= x 'NIL) 'None x))
+  `(if ~test ~(arm then) ~(if else (arm (get else 0)) 'None)))
 
 (defmacro cl-defun-fast [name ll #* body]
   (setv [params restname] (lambda-list ll))
