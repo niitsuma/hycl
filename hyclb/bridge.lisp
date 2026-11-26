@@ -121,11 +121,30 @@ a line number, which is what a traceback shows."
             ((char= c #\;) (read-line stream nil))
             (t (return (file-position stream)))))))
 
+(defun place-update-p (form)
+  "Is FORM an INCF or DECF of a place that is not a variable?"
+  (and (member (symbol-name (car form)) '("INCF" "DECF") :test #'string=)
+       (consp (second form))))
+
+(defun expand-place-update (form env)
+  "(incf PLACE DELTA) as the SETF it means.  The back end translates INCF
+and DECF for a variable only -- they are on the frontier so that (incf i)
+stays an addition.  SBCL's own expansion for a place such as (aref a i)
+cannot be used: it calls SB-IMPL::XSUBTRACT, which no Python has.  The
+place's subforms are evaluated once and before DELTA, as the standard says."
+  (destructuring-bind (op place &optional (delta 1)) form
+    (multiple-value-bind (vars vals stores setter getter) (get-setf-expansion place env)
+      `(let* (,@(mapcar #'list vars vals)
+              (,(car stores) (,(if (string= (symbol-name op) "INCF") '+ '-) ,getter ,delta)))
+         ,setter))))
+
 (defun expand-step (form env)
   "Expand FORM one macro at a time, stopping when we reach the frontier."
   (loop
     (when (and (consp form) (symbolp (car form)) (member (car form) *stop*))
-      (return (values (walk-stopped form) t)))
+      (if (place-update-p form)
+          (setf form (expand-place-update form env))
+          (return (values (walk-stopped form) t))))
     (multiple-value-bind (new expanded-p) (macroexpand-1 form env)
       (unless expanded-p (return (values new nil)))
       (setf form new))))

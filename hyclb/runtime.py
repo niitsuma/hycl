@@ -1781,10 +1781,37 @@ def cl_svref(v, i):
     return v[i]
 
 
-def cl_make_array(size, **kw):
-    initial = kw.get("initial_element", NIL)
-    n = size if isinstance(size, int) else to_list(size)[0]
-    return [initial] * n
+def _nested_list(contents, depth):
+    """:initial-contents, a list of lists DEPTH deep, as Python lists."""
+    if depth == 0:
+        return contents
+    items = to_list(contents) if isinstance(contents, Cons) or contents is NIL \
+        else list(contents)
+    return [_nested_list(x, depth - 1) for x in items]
+
+
+def _filled(dims, initial):
+    if len(dims) == 1:
+        return [initial] * dims[0]
+    return [_filled(dims[1:], initial) for _ in range(dims[0])]
+
+
+def cl_make_array(size, *options):
+    """(make-array dimensions &key initial-element initial-contents ..)
+
+    A list, nested once per further dimension, which is what (aref a i j)
+    reads.  The keywords arrive as they are written, a keyword and then its
+    value; :element-type and the rest are accepted and change nothing.
+    """
+    kw = {}
+    for i in range(0, len(options) - 1, 2):
+        key = options[i]
+        kw[key.name.lower() if isinstance(key, Symbol) else str(key)] = options[i + 1]
+    dims = [size] if isinstance(size, int) else to_list(size)
+    contents = kw.get("initial-contents")
+    if contents is not None:
+        return _nested_list(contents, len(dims))
+    return _filled(dims, kw.get("initial-element", NIL))
 
 
 def cl_length_vector(v):

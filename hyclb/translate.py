@@ -799,8 +799,22 @@ def _assigned_specials(x, found):
     if not isinstance(x, Cons):
         return found
     head = x.car
-    if isinstance(head, Symbol) and head.name in ("setq", "setf"):
-        target = x.cdr.car if isinstance(x.cdr, Cons) else None
+    if isinstance(head, Symbol) and head.name in ("setq", "setf", "incf", "decf", "pop"):
+        # (setq a 1 b 2): every other argument is a place
+        node, place = x.cdr, True
+        while isinstance(node, Cons):
+            if place and isinstance(node.car, Symbol) and node.car.name in SPECIALS:
+                found.add(node.car.name)
+            if head.name in ("setq", "setf"):
+                place = not place
+            else:
+                break
+            node = node.cdr
+    elif isinstance(head, Symbol) and head.name == "push":
+        # (push item place); INCF, DECF, PUSH and POP stop at the frontier,
+        # so they arrive here as written and not as the SETQ they become
+        target = (x.cdr.cdr.car if isinstance(x.cdr, Cons) and isinstance(x.cdr.cdr, Cons)
+                  else None)
         if isinstance(target, Symbol) and target.name in SPECIALS:
             found.add(target.name)
     node = x
