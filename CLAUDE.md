@@ -159,8 +159,8 @@ the same to ten standard-library modules against CPython. Both are the right
 model for new work: check against an independent implementation rather than
 against an expectation.
 
-Expected results, of 54 items: bare install (Hy and SBCL only) 42 pass /
-12 skip; with everything installed, 53 pass. Two caveats worth knowing before
+Expected results, of 55 items: bare install (Hy and SBCL only) 43 pass /
+12 skip; with everything installed, 54 pass. Two caveats worth knowing before
 you chase a red run. `libraries.lisp` skips wherever `let-over-lambda` will
 not build — SBCL 2.5.11 with the current dist is such a place, and plain SBCL
 fails the same way. `llm.lisp` calls a live model, so its result is sampled,

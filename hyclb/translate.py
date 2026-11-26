@@ -489,8 +489,48 @@ def _literal(x):
     raise TranslationError(f"cannot translate literal {x!r}")
 
 
+# The names bound by the forms being translated, innermost last.  Common
+# Lisp keeps variables and functions apart: (let ((first (aref v 0))) first)
+# reads the variable.  A bare symbol that names a runtime function is that
+# function here (`first` is `cl-first`), so a bound name has to be known as
+# bound, or the body would read the function where it wrote the variable.
+_BOUND = []
+
+
+def _is_bound(name):
+    return any(name in frame for frame in _BOUND)
+
+
+def _symbols_in(x, out):
+    if isinstance(x, Symbol):
+        if not x.name.startswith("&"):
+            out.add(x.name)
+    elif isinstance(x, Cons):
+        for e in _iter(x):
+            _symbols_in(e, out)
+
+
+def _bound_names(kind, arg, out):
+    """Add to OUT the variables the binding form ARG, of shape KIND, binds."""
+    if kind == "bindings":
+        for b in (_iter(arg) if isinstance(arg, Cons) else ()):
+            if isinstance(b, Cons):         # (var init), ((keyword var) init)
+                b = b.car
+                if isinstance(b, Cons) and isinstance(b.cdr, Cons):
+                    b = b.cdr.car
+            if isinstance(b, Symbol) and not b.name.startswith("&"):
+                out.add(b.name)
+    elif kind == "binding":                 # (var ..) of DOTIMES, DOLIST
+        b = arg.car if isinstance(arg, Cons) else arg
+        _symbols_in(b, out)
+    elif kind == "names":
+        _symbols_in(arg, out)
+
+
 def _var(s):
     name = s.name
+    if _is_bound(name):
+        return ref(py_name(s))
     if _fast and name in FAST_RUNTIME:
         return sym(FAST_RUNTIME[name])
     if name in RUNTIME:
@@ -1085,6 +1125,23 @@ def _shape_for(name, args):
 def _args(rest, head_name):
     args = list(_iter(rest))
     shape = _shape_for(head_name, args)
+    bound = set()
+    if head_name == "destructuring-bind" and args:
+        _symbols_in(args[0], bound)
+    elif isinstance(shape, dict) and head_name != "handler-bind":
+        for i, kind in shape.items():
+            if i <= len(args):
+                _bound_names(kind, args[i - 1], bound)
+    if not bound:
+        return _args_1(args, shape)
+    _BOUND.append(frozenset(bound))
+    try:
+        return _args_1(args, shape)
+    finally:
+        _BOUND.pop()
+
+
+def _args_1(args, shape):
     out = []
     for i, arg in enumerate(args, start=1):
         if shape == "clauses":
