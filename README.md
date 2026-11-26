@@ -540,7 +540,11 @@ by name alone), and Python's lack of tail calls limits *mutual* recursion --
 a function that calls itself in tail position is compiled to a loop, so that
 case is unbounded. `handler-bind` runs its handler after Python has already
 unwound, so a handler can decline or transfer control but cannot inspect the
-signalling frame. See the paper for the full list.
+signalling frame. Multiple values travel beside the first value rather than
+with the call: a function that returns, alone, the first value of a form it
+evaluated earlier -- `(let ((q (floor n 2))) q)` -- still hands the remainder
+to a caller that asks with `multiple-value-bind`, where Lisp gives one value.
+See the paper for the full list.
 
 ## Citing
 
